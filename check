@@ -1,0 +1,23 @@
+#!/bin/bash
+# Runs every check: the secret scan, the feature map, lint, types, unit tests, build,
+# and the browser tests. Exits non-zero as soon as any check fails.
+set -euo pipefail
+cd "$(dirname "$0")"
+export NEXT_TELEMETRY_DISABLED=1
+# Secret scan (gitleaks): no password or key in saved history, staged edits, unsaved edits,
+# or new files not yet added to git. -v names the file, line and rule; --redact hides the value.
+gitleaks git -v --no-banner --redact --log-level warn .
+gitleaks git -v --pre-commit --staged --no-banner --redact --log-level warn .
+gitleaks git -v --pre-commit --no-banner --redact --log-level warn .
+git ls-files --others --exclude-standard -z | xargs -0 -r -n1 gitleaks dir -v --no-banner --redact --log-level warn --
+# Feature map: the checker first proves itself on fixtures that the installed test runners list
+# from a scratch folder, then asks Playwright (and Vitest, for unit tests a row names) which tests
+# exist and checks that every row has a proof and every end-to-end test has a row. It is told
+# the Playwright config that `npm run e2e` below runs; any other playwright.config.* fails it.
+scripts/check-features --self-test
+scripts/check-features playwright.config.ts
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run e2e

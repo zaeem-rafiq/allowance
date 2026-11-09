@@ -1,0 +1,6 @@
+# Compound Engineering settings for this project.
+# The owner's rules require approval before code or documents go to any outside service.
+# "off" stops Compound Engineering's reviews from automatically sending code to other
+# AI providers (such as Codex or Grok). The owner can still ask for one in the conversation,
+# for example "use codex as the independent reviewer this time".
+cross_model_review_mode: off

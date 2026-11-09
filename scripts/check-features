@@ -1,0 +1,917 @@
+#!/usr/bin/env python3
+"""Checks FEATURES.md, the project's feature map, against the tests the test runners list.
+
+Run it from the project root, from ./check, naming the Playwright config files ./check runs:
+    scripts/check-features playwright.config.ts            # a web project
+    scripts/check-features apps/web/playwright.config.ts   # a monorepo
+    scripts/check-features                                 # a Python project: pytest needs no name
+    scripts/check-features --self-test   # proves the checker on fixtures the installed runners list
+
+The checker never reads a test file itself. It asks each test runner installed in the
+project for its own list of tests, the same list the runner uses when it runs them:
+- Playwright, for each config file named on the command line: `playwright test --list`.
+  Every test it lists is an end-to-end test. A playwright.config.* elsewhere in the project
+  (outside node_modules and hidden folders) that ./check did not name fails the check,
+  because tests nobody runs prove nothing.
+- pytest, when the project root has pyproject.toml or pytest.ini: `pytest --collect-only`
+  through `uv run --locked`, which installs the project's locked dependencies when they are
+  missing and fails when uv.lock is stale. It collects three times (every test, the running
+  ones, the `browser` ones), each bounded by the four-minute limit. Tests with the `browser`
+  marker are the end-to-end tests. Tests marked skip, skipif (whatever its condition) or xfail do not
+  count as running, with pytest's own marker logic; the checker's `-m` expression replaces
+  any `-m` in the project's addopts. A Python project in a subfolder is not seen.
+- Vitest, for the vitest.config.* nearest a unit test a row names: `vitest list` with
+  static parsing off, so Vitest loads the files as a run does. It runs only when a row
+  names a unit test, because loading can be slow in a project whose tests need a database.
+Jest has no listing command, so a project whose rows name Jest tests fails loudly until an
+adapter for it exists. The checker never downloads a Node runner.
+
+It fails (exit 1) and says why when:
+- FEATURES.md is missing, or has no rows under a table with a Proof column.
+- A table is broken: a row sits outside any table (a blank line inside the
+  table), or a row has the wrong number of columns. A line with a pipe outside
+  backticks counts as a row even without a leading pipe, so prose must not use bare pipes.
+- A row has no Proof.
+- A Proof names no test after #. A file alone is not a proof.
+- A Proof names a file that does not exist inside the project, a file no runner lists,
+  or a test the runner does not list as running. A skipped test (test.skip, test.fixme,
+  a skipped group, pytest's skip, skipif and xfail markers), a test expected to fail
+  (test.fail) and a test in a branch that never runs prove nothing; neither does a name
+  that only appears in a comment, nor a group's name. A proof names a test by its own
+  title, or by `group > title`; when two tests in one file share a title and neither
+  is the plain one, the proof must say which group.
+- A row's first Proof is not an end-to-end test. The first proof in a row is its
+  end-to-end test; unit tests may follow it.
+- A runner is not installed, refuses to list (a focused test.only or it.only, a file that
+  fails to parse or import, no tests at all), writes a list the checker does not
+  understand, or takes longer than four minutes.
+- A Playwright config ./check did not name exists in the project, or a named one does not.
+- The runners list no end-to-end test at all.
+- An end-to-end test file the runners list is named by no row, or a running end-to-end
+  test in it is named by no row. Every end-to-end test needs a row, and a file whose
+  tests are all skipped cannot be proved, so it fails too.
+A skip or fail decided when the test runs (test.skip or test.fail in a body or with a
+condition callback, pytest.skip in a body, unittest.skip) is invisible here, as it is to the
+runner before the test runs; the hookify rules block that edit. Vitest's it.fails is listed
+as a test, because `vitest list` reports only names.
+On success it prints one line with the counts.
+
+The Proof column holds one or more entries in backticks, separated by commas:
+    `e2e/home.spec.ts#shows the greeting`, `src/app/page.test.tsx#greets visitors`
+
+Standard library only; keep it runnable on Python 3.9.
+"""
+import contextlib
+import functools
+import io
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import NamedTuple
+
+PYTEST_E2E_MARKER = "browser"  # the python reference marks end-to-end tests this way
+PYTEST_NOT_RUNNING = "not skip and not skipif and not xfail"  # pytest's own marker logic
+PLAYWRIGHT_CONFIG = re.compile(r"^playwright\.config\.[cm]?[jt]s$")
+VITEST_CONFIG = re.compile(r"^vitest\.config\.[cm]?[jt]s$")
+PYTEST_INIS = ("pytest.ini", "pyproject.toml")
+# Colours off and Vite's config-loader notice off, so a runner's message reads cleanly.
+QUIET = {"NO_COLOR": "1", "FORCE_COLOR": "0", "VITE_CONFIG_NATIVE_IGNORE_WARNING": "true"}
+RUNNER_TIMEOUT = 240  # seconds a runner may take to list; ./check must stay under about five minutes
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+class Test(NamedTuple):
+    file: str  # relative to the project root, with forward slashes
+    chain: tuple  # the groups around it, outermost first: describe blocks, classes
+    title: str
+    running: bool  # False when the runner reports it as skipped or expected to fail
+    e2e: bool  # every Playwright test, and every pytest test with the marker
+
+    @property
+    def full_name(self):
+        return " > ".join(self.chain + (self.title,))
+
+
+class RunnerError(Exception):
+    """A runner is missing, refused to list, or wrote something the checker cannot read."""
+
+
+# --- The feature map ---
+
+def cells_of(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def is_separator(line):
+    """The |---|---| line under a table header: every cell has a dash, and nothing but
+    dashes, colons and spaces. A row of empty cells is a row, not a separator."""
+    stripped = line.strip()
+    return stripped.startswith("|") and all("-" in c and set(c) <= set("-: ") for c in cells_of(stripped))
+
+
+def looks_like_row(stripped):
+    """A line written as a row without a leading pipe: it has a pipe outside backticks.
+    Prose that mentions a pipe in backticks is not a row."""
+    return "|" in re.sub(r"`[^`]*`", "", stripped)
+
+
+def parse(text):
+    """Returns (problems, features). Each feature is (line number, name, proofs)."""
+    problems, features = [], []
+    lines = text.splitlines()
+    header, proof_column = None, None
+    for index, line in enumerate(lines):
+        number = index + 1
+        stripped = line.strip()
+        starts_with_pipe = stripped.startswith("|")
+        if header is None:
+            if not starts_with_pipe:
+                if looks_like_row(stripped):
+                    problems.append(f"line {number}: a table row outside any table (no table header above it). Is there a blank line inside the table, or pipes in prose?")
+                continue
+            following = lines[index + 1] if index + 1 < len(lines) else ""
+            if not is_separator(following):
+                problems.append(f"line {number}: a table row outside any table. Is there a blank line inside the table?")
+                continue
+            header = cells_of(stripped)
+            names = [c.lower() for c in header]
+            proof_column = names.index("proof") if "proof" in names else None
+            if proof_column is None and names[0] == "feature":
+                problems.append(f"line {number}: the Feature table has no Proof column.")
+            continue
+        if "|" not in stripped:
+            header = None  # the table ended: a blank line or prose
+            continue
+        if is_separator(stripped):
+            continue
+        if proof_column is None:
+            continue  # some other table
+        cells = cells_of(stripped)
+        if len(cells) != len(header):
+            problems.append(f"line {number}: the row has {len(cells)} columns and the header has {len(header)}.")
+            continue
+        proofs = re.findall(r"`([^`]+)`", cells[proof_column])
+        features.append((number, cells[0], proofs))
+    return problems, features
+
+
+# --- The runners ---
+
+def kill_group(process):
+    """Kills the runner and every process it started (they share its process group), then reaps it.
+    A descendant that left the group could still hold the output pipes, so the wait is bounded."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(process.pid, signal.SIGKILL)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.communicate(timeout=5)
+    process.wait()
+
+
+def run(command, cwd, env=None):
+    """Runs a runner in its own process group, so a timeout (or an interrupt) kills it and every
+    child it started."""
+    try:
+        process = subprocess.Popen(command, cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, env={**os.environ, **QUIET, **(env or {})}, start_new_session=True)
+    except OSError as error:
+        raise RunnerError(f"cannot run {command[0]}: {error.strerror or error}")
+    try:
+        out, err = process.communicate(timeout=RUNNER_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        kill_group(process)
+        raise RunnerError(f"{command[0]} took longer than {RUNNER_TIMEOUT} seconds to list the tests, so the check gave up. Does listing start a server or a database?")
+    except BaseException:  # an interrupt: leave no runner behind
+        kill_group(process)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, out, err)
+
+
+def output_tail(result, lines=12):
+    text = [ANSI.sub("", line) for line in (result.stdout + "\n" + result.stderr).splitlines() if line.strip()]
+    return "\n      ".join(text[-lines:]) or "no output"
+
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def relative(root, path):
+    try:
+        return Path(path).resolve().relative_to(root).as_posix()
+    except ValueError:
+        raise RunnerError(f"{path} is outside the project")
+
+
+def find_configs(root, pattern):
+    """Every config file whose name matches, skipping node_modules and hidden folders."""
+    found = []
+    for folder, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if d != "node_modules" and not d.startswith("."))
+        found.extend(Path(folder) / f for f in filenames if pattern.match(f))
+    return sorted(found)
+
+
+def node_binary(root, config, name):
+    """The runner installed nearest the config: node_modules/.bin/<name> in its folder or above, up to the root."""
+    folder = config.parent
+    while True:
+        candidate = folder / "node_modules" / ".bin" / name
+        if candidate.is_file():
+            return candidate
+        if folder == root or folder == folder.parent:
+            raise RunnerError(f"{name} is not installed for {relative(root, config)}: no node_modules/.bin/{name} between its folder and the project root. Install the project first (npm ci).")
+        folder = folder.parent
+
+
+def once(adapter):
+    """Asks a runner once per config (or project) for the whole check, whether it listed or failed,
+    so a failing runner is not run again for every row that names one of its tests."""
+    results = {}
+
+    @functools.wraps(adapter)
+    def remembered(*arguments):
+        key = (adapter.__name__,) + arguments
+        if key not in results:
+            try:
+                results[key] = (adapter(*arguments), None)
+            except RunnerError as error:
+                results[key] = (None, error)
+        tests, error = results[key]
+        if error is not None:
+            raise error
+        return tests
+    return remembered
+
+
+@once
+def playwright_tests(root, config):
+    """Every test Playwright lists for one config file. All of them are end-to-end tests. A test
+    runs when Playwright expects it to pass in some project: not skipped, not fixme, not test.fail."""
+    binary = node_binary(root, config, "playwright")
+    label = relative(root, config)
+    with tempfile.TemporaryDirectory() as tmp:
+        report_file = Path(tmp) / "playwright.json"
+        result = run([str(binary), "test", "--list", "--forbid-only", "--reporter=json", "--config", str(config)],
+                     cwd=config.parent, env={"PLAYWRIGHT_JSON_OUTPUT_FILE": str(report_file)})
+        report = read_json(report_file)
+    errors = []
+    if isinstance(report, dict) and isinstance(report.get("errors"), list):
+        errors = [(str(error.get("message", "")) if isinstance(error, dict) else str(error)).strip().splitlines()[:1] or ["an error without a message"] for error in report["errors"]]
+        errors = [lines[0] for lines in errors]
+    if result.returncode != 0 or report is None or errors:
+        why = "\n      ".join(errors) if errors else output_tail(result)
+        if report is None and not errors:
+            why = "it wrote no list the checker can read.\n      " + why
+        raise RunnerError(f"Playwright could not list the tests of {label} (exit {result.returncode}):\n      {why}")
+    tests = []
+    try:
+        root_dir = Path(report["config"]["rootDir"])
+
+        def walk(suite, chain):
+            for spec in suite["specs"]:
+                running = any(test["expectedStatus"] == "passed" and not any(a["type"] in ("skip", "fixme", "fail") for a in test["annotations"])
+                              for test in spec["tests"])
+                tests.append(Test(relative(root, root_dir / spec["file"]), chain, spec["title"], running, True))
+            for child in suite.get("suites", []):
+                walk(child, chain + (child["title"],))
+
+        for file_suite in report["suites"]:
+            walk(file_suite, ())
+    except (KeyError, TypeError, AttributeError) as error:
+        raise RunnerError(f"Playwright's list for {label} has a shape the checker does not understand ({error!r}). Did Playwright's JSON reporter change?")
+    return tests
+
+
+@once
+def vitest_tests(root, config):
+    """Every test Vitest lists for one config file after loading the files: unit tests, never
+    end-to-end. Vitest leaves skipped tests off its list, and refuses to list at all (exit 1)
+    when a test is focused or a file fails to load."""
+    binary = node_binary(root, config, "vitest")
+    label = relative(root, config)
+    with tempfile.TemporaryDirectory() as tmp:
+        list_file = Path(tmp) / "vitest.json"
+        result = run([str(binary), "list", "--json=" + str(list_file), "--staticParse=false", "--allowOnly=false", "--config", str(config)], cwd=config.parent)
+        listing = read_json(list_file)
+    if result.returncode != 0 or listing is None:
+        why = output_tail(result)
+        if result.returncode != 0 and listing is not None:
+            why = "Vitest exits like this when a test is focused with it.only or describe.only.\n      " + why
+        elif listing is None:
+            why = "it wrote no list the checker can read.\n      " + why
+        raise RunnerError(f"Vitest could not list the tests of {label} (exit {result.returncode}):\n      {why}")
+    try:
+        tests = []
+        for entry in listing:
+            parts = entry["name"].split(" > ")
+            tests.append(Test(relative(root, entry["file"]), tuple(parts[:-1]), parts[-1], True, False))
+    except (KeyError, TypeError, AttributeError) as error:
+        raise RunnerError(f"Vitest's list for {label} has a shape the checker does not understand ({error!r}). Did `vitest list --json` change?")
+    return tests
+
+
+PYTEST_NODE = re.compile(r"^(?P<file>[^\s:]+\.py)::(?P<rest>\S.*)$")
+
+
+@once
+def pytest_tests(root, project):
+    """Every test pytest collects under root, through the uv environment of project (normally the
+    same folder; the self-test lists a scratch folder with the project's pytest). Skipped tests are
+    left out with pytest's own marker logic; the ones with the browser marker are end-to-end
+    tests. Parametrized tests count once, under their plain name."""
+    ini = next((root / name for name in PYTEST_INIS if (root / name).is_file()), None)
+    if ini is None:
+        raise RunnerError(f"pytest has no pytest.ini or pyproject.toml in {root}")
+
+    def collect(expression):
+        command = ["uv", "run", "--locked", "--project", str(project), "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
+                   "--rootdir", str(root), "-c", str(ini), "-m", expression]
+        result = run(command, cwd=root)
+        if result.returncode == 5:  # pytest: no tests collected
+            return set()
+        if result.returncode != 0:
+            raise RunnerError(f"pytest could not list the tests of {root} (exit {result.returncode}):\n      {output_tail(result)}")
+        ids = set()
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                break
+            match = PYTEST_NODE.match(line)
+            if not match:
+                raise RunnerError(f"pytest's list has a line the checker does not understand: {line!r}. Did `pytest --collect-only -q` change?")
+            ids.add((match["file"], match["rest"]))
+        if "collected" not in result.stdout:
+            raise RunnerError("pytest's list ended without its summary line. Did `pytest --collect-only -q` change?")
+        return ids
+
+    running_ids = collect(PYTEST_NOT_RUNNING)
+    e2e_ids = collect(PYTEST_E2E_MARKER)
+    tests = []
+    for file, rest in sorted(collect("not nosuchmarker")):  # every test, skipped ones included, in a stable order
+        parts = rest.partition("[")[0].split("::")  # the [parameters] may hold anything, even ::
+        tests.append(Test(file, tuple(parts[:-1]), parts[-1], (file, rest) in running_ids, (file, rest) in e2e_ids))
+    return tests
+
+
+def add(catalog, tests):
+    """Merges tests into the catalog: file -> (chain, title) -> Test. A test listed twice (one
+    per Playwright project, one per pytest parameter) runs and is end-to-end when any listing says so."""
+    for test in tests:
+        by_name = catalog.setdefault(test.file, {})
+        known = by_name.get((test.chain, test.title))
+        if known:
+            test = test._replace(running=known.running or test.running, e2e=known.e2e or test.e2e)
+        by_name[(test.chain, test.title)] = test
+
+
+def list_end_to_end(root, configs, pytest_project):
+    """The tests of every end-to-end runner: each Playwright config ./check named, and pytest."""
+    named = []
+    for path in configs:
+        config = Path(os.path.abspath(root / path))  # a symlinked config stays itself: Playwright runs beside the link
+        if not config.is_file() or not config.is_relative_to(root):
+            raise RunnerError(f"{path} is not a file inside the project. ./check names the Playwright config files it runs.")
+        named.append(config)
+    for config in find_configs(root, PLAYWRIGHT_CONFIG):
+        if config not in named:
+            unnamed = config.relative_to(root).as_posix()
+            raise RunnerError(f"{unnamed} is a Playwright config that ./check does not run. Name it (scripts/check-features {unnamed}) or remove it: tests nobody runs prove nothing.")
+    catalog = {}
+    for config in named:
+        add(catalog, playwright_tests(root, config))
+    has_pytest = any((root / name).is_file() for name in PYTEST_INIS)
+    if has_pytest:
+        add(catalog, pytest_tests(root, pytest_project or root))
+    if not named and not has_pytest:
+        raise RunnerError("no test runner found: ./check named no Playwright config, and the project has no pytest.ini or pyproject.toml at its root.")
+    return catalog
+
+
+def nearest_vitest_config(root, file):
+    folder = (root / file).parent
+    while True:
+        for candidate in sorted(folder.iterdir()):
+            if VITEST_CONFIG.match(candidate.name) and candidate.is_file():
+                return candidate
+        if folder == root:
+            return None
+        folder = folder.parent
+
+
+# --- The check ---
+
+def fail(problems):
+    print("check-features: FEATURES.md does not match the tests.", file=sys.stderr)
+    for problem in problems:
+        print(f"  - {problem}", file=sys.stderr)
+    print("  Fix the map or the tests. A feature without a row and a passing proof is not done.", file=sys.stderr)
+    return 1
+
+
+def main(root=None, configs=(), pytest_project=None):
+    root = Path(root or Path.cwd()).resolve()
+    feature_map = root / "FEATURES.md"
+    if not feature_map.is_file():
+        return fail(["FEATURES.md is missing. Every project keeps its feature map at the root."])
+    problems, features = parse(feature_map.read_text(encoding="utf-8"))
+    if not features and not problems:
+        problems.append("FEATURES.md has no feature rows under a table with a Proof column.")
+    try:
+        catalog = list_end_to_end(root, configs, pytest_project)
+    except RunnerError as error:
+        return fail(problems + [str(error)])
+    named_files = set()  # every file a proof names
+    named = set()  # every (file, chain, title) a proof names
+    reported = set()  # Vitest configs whose failure is already in the problems
+    for number, name, proofs in features:
+        if not proofs:
+            problems.append(f"line {number}, {name!r}: no Proof. Name the test that proves it, in backticks.")
+        for position, proof in enumerate(proofs):
+            path, _, title = proof.partition("#")
+            path, title = path.strip(), title.strip()
+            file = (root / path).resolve()
+            if not file.is_file() or not file.is_relative_to(root):
+                problems.append(f"line {number}, {name!r}: the proof file {path} does not exist inside the project.")
+                continue
+            file = file.relative_to(root).as_posix()
+            named_files.add(file)
+            if not title:
+                problems.append(f"line {number}, {name!r}: the proof {path} names no test. Write `{path}#<test name>`; a file alone is not a proof.")
+                continue
+            if file not in catalog:  # not an end-to-end file: ask the nearest Vitest for its unit tests
+                config = nearest_vitest_config(root, file)
+                try:
+                    if config is not None:
+                        add(catalog, vitest_tests(root, config))
+                except RunnerError as error:
+                    if config not in reported:
+                        problems.append(f"line {number}, {name!r}: {error}")
+                        reported.add(config)
+                    continue
+                if file not in catalog:
+                    asked = f"and {relative(root, config)} does not include it" if config else "and no vitest.config.* sits above it"
+                    problems.append(f"line {number}, {name!r}: no test runner lists {path}: Playwright and pytest do not, {asked}.")
+                    continue
+            tests = list(catalog[file].values())
+            matches = [test for test in tests if test.full_name == title] or [test for test in tests if test.title == title]
+            running = [test for test in matches if test.running]
+            if not matches:
+                problems.append(f"line {number}, {name!r}: the runner lists no running test named {title!r} in {path}.")
+            elif not running:
+                problems.append(f"line {number}, {name!r}: the runner lists {title!r} in {path} as skipped or expected to fail, so it proves nothing.")
+            elif len(running) > 1:
+                choices = " or ".join(f"`{path}#{test.full_name}`" for test in running)
+                problems.append(f"line {number}, {name!r}: {title!r} names {len(running)} tests in {path}. Name the group too: {choices}.")
+            else:
+                test = running[0]
+                if position == 0 and not test.e2e:
+                    problems.append(f"line {number}, {name!r}: the first proof {proof} is not an end-to-end test (Playwright, or pytest with the `{PYTEST_E2E_MARKER}` marker). The first proof in a row is its end-to-end test; unit tests may follow it.")
+                named.add((test.file, test.chain, test.title))
+    end_to_end = [test for file in sorted(catalog) for test in catalog[file].values() if test.e2e]
+    running_end_to_end = [test for test in end_to_end if test.running]
+    if not running_end_to_end:
+        problems.append("the runners list no running end-to-end test. Every feature needs one.")
+    for file in sorted({test.file for test in end_to_end}):
+        if file not in named_files:
+            problems.append(f"{file}: an end-to-end test file with no row in FEATURES.md.")
+    for test in running_end_to_end:
+        if test.file in named_files and (test.file, test.chain, test.title) not in named:
+            problems.append(f"{test.file}: the test {test.full_name!r} has no row in FEATURES.md.")
+    if problems:
+        return fail(problems)
+    print(f"FEATURES.md: {len(features)} features, every proof found, {len(running_end_to_end)} end-to-end tests in {len({test.file for test in end_to_end})} files mapped.")
+    return 0
+
+
+# --- Self-test: fixtures the installed runners list from a scratch folder. Run from ./check. ---
+
+PLAYWRIGHT_CONFIG_FIXTURE = (
+    'import { defineConfig } from "@playwright/test";\n'
+    'export default defineConfig({ testDir: "./e2e", projects: [{ name: "chromium" }, { name: "firefox" }] });\n'
+)
+VITEST_CONFIG_FIXTURE = 'import { defineConfig } from "vitest/config";\nexport default defineConfig({ test: { include: ["src/**/*.test.ts"] } });\n'
+PYTEST_INI_FIXTURE = "[pytest]\nmarkers =\n    browser: end-to-end test\n"
+SPEC = (
+    'import { test } from "@playwright/test";\n'
+    '// test("in a line comment", () => {});\n'
+    '/*\ntest("in a block comment", () => {});\n*/\n'
+    'test.skip("skipped", async () => {});\n'
+    'test.fixme("fixmed", async () => {});\n'
+    'test.fail("expected to fail", async () => {\n  throw new Error("this test is expected to fail");\n});\n'
+    'test(\n  "wrapped onto the next line",\n  async () => {},\n);\n'
+    'test("shared name", async () => {});\n'
+    'test.describe("group", () => {\n  test("inside a group", async () => {});\n  test("shared name", async () => {});\n  test("grouped twice", async () => {});\n});\n'
+    'test.describe("other group", () => {\n  test("grouped twice", async () => {});\n});\n'
+    'test.describe.skip("skipped group", () => {\n  test("inside a skipped group", async () => {});\n});\n'
+    'for (const n of [1, 2]) {\n  test(`generated ${n}`, async () => {});\n}\n'
+    'test("routes the api", async ({ page }) => {\n'
+    '  await page.route(/\\/*api/, (route) => route.abort());\n'
+    '  const half = 4 /* a comment after a division */ / 2;\n'
+    '  test.skip(half > 10, "a skip decided in the body is invisible until the test runs");\n'
+    '});\n'
+    'test("plain test", async () => {});\n'
+)
+OTHER_SPEC = 'import { test } from "@playwright/test";\ntest("other", async () => {});\n'
+SECOND_SPEC = 'import { test } from "@playwright/test";\ntest("second config", async () => {});\n'
+DECOY_SPEC = 'import { test } from "@playwright/test";\ntest("decoy", async () => {});\n'
+SKIPPED_SPEC = 'import { test } from "@playwright/test";\ntest.skip("later", async () => {});\n'
+FOCUSED_SPEC = 'import { test } from "@playwright/test";\ntest.only("focused", async () => {});\ntest("plain test", async () => {});\n'
+BROKEN_SPEC = 'import { test } from "@playwright/test";\ntest("plain test", async () => {});\ntest("unclosed\n'
+UNIT = (
+    'import { describe, it, test } from "vitest";\n'
+    'describe("Home page", () => {\n  it("renders", () => {});\n  it.skip("skipped unit", () => {});\n});\n'
+    'test("top level unit", () => {});\n'
+    'if (new Date().getFullYear() < 2000) {\n  test("never registered", () => {});\n}\n'
+)
+FOCUSED_UNIT = 'import { it } from "vitest";\nit.only("focused unit", () => {});\nit("renders", () => {});\n'
+BROKEN_UNIT = 'import { it } from "vitest";\nit("renders", () => {});\nit("unclosed\n'
+THROWING_UNIT = 'import { it } from "vitest";\nthrow new Error("boom at import");\nit("renders", () => {});\n'
+PY = (
+    "import pytest\n"
+    "# def test_commented(): pass\n"
+    "@pytest.mark.browser\nclass TestHome:\n    def test_method(self):\n        pass\n"
+    "@pytest.mark.browser\ndef test_plain():\n    pass\n"
+    "@pytest.mark.browser\n@pytest.mark.skip(reason='not yet')\ndef test_skipped():\n    pass\n"
+    "@pytest.mark.browser\n@pytest.mark.skipif(True, reason='never')\ndef test_skipif():\n    pass\n"
+    "@pytest.mark.browser\n@pytest.mark.xfail(reason='known')\ndef test_xfail():\n    pass\n"
+    "@pytest.mark.browser\n@pytest.mark.parametrize('n', [1, 2])\ndef test_param(n):\n    pass\n"
+    "@pytest.mark.browser\n@pytest.mark.parametrize('n', ['a::b'])\ndef test_colon(n):\n    pass\n"
+    "@pytest.mark.parametrize('n', [pytest.param(1, marks=pytest.mark.browser), pytest.param(2, marks=pytest.mark.skip)])\n"
+    "def test_mixed(n):\n    pass\n"  # one instance runs as an end-to-end test, one is skipped: the test counts as running and end-to-end
+    "@pytest.mark.parametrize('n', [pytest.param(1, marks=pytest.mark.skip), pytest.param(2, marks=pytest.mark.browser)])\n"
+    "def test_mixed_back(n):\n    pass\n"  # the same with the skipped instance first
+    "def test_unit():\n    pass\n"
+    "def helper():\n    pass\n"
+)
+SKIPPED_PY = "import pytest\npytestmark = pytest.mark.skip(reason='later')\n@pytest.mark.browser\ndef test_later():\n    pass\n"
+BROKEN_PY = "def test_plain():\n    pass\ndef test_unclosed(:\n"
+FAKE_RUNNER = {  # shell scripts that stand in for Playwright, to prove the checker reads its exit code and report
+    "writes nothing": "#!/bin/sh\necho 'not a list'\n",
+    "exit 0 with an error": '#!/bin/sh\nprintf \'{"config": {"rootDir": "/"}, "suites": [], "errors": [{"message": "Error: boom in a fake runner"}]}\' > "$PLAYWRIGHT_JSON_OUTPUT_FILE"\n',
+    "exit 1 with a clean report": '#!/bin/sh\nprintf \'{"config": {"rootDir": "/"}, "suites": [], "errors": []}\' > "$PLAYWRIGHT_JSON_OUTPUT_FILE"\nexit 1\n',
+    "unreadable shape": '#!/bin/sh\nprintf \'{"config": {}, "suites": [{"title": "a"}], "errors": []}\' > "$PLAYWRIGHT_JSON_OUTPUT_FILE"\n',
+    "hangs": '#!/bin/sh\nsleep 60 &\necho $! > "$0.pid"\nwait\n',  # a child that must die with it
+}
+FAKE_VITEST = '#!/bin/sh\necho start >> "$0.log"\necho vitest-start >&2\nexit 1\n'  # leaves a line per start beside itself
+HEADER = "| Feature | What it does | How to reach it | Proof | Broken looks like |\n|---|---|---|---|---|\n"
+# Every running end-to-end test the fixtures declare, so a failing case can fail only for its
+# own defect: these rows plus exactly one defect, or minus exactly one row.
+A_PROOFS = [
+    "`web/e2e/a.spec.ts#plain test`", "`web/e2e/a.spec.ts#wrapped onto the next line`", "`web/e2e/a.spec.ts#inside a group`",
+    "`web/e2e/a.spec.ts#shared name`", "`web/e2e/a.spec.ts#group > shared name`",
+    "`web/e2e/a.spec.ts#group > grouped twice`", "`web/e2e/a.spec.ts#other group > grouped twice`",
+    "`web/e2e/a.spec.ts#generated 1`", "`web/e2e/a.spec.ts#generated 2`", "`web/e2e/a.spec.ts#routes the api`",
+]
+PLAYWRIGHT_PROOFS = A_PROOFS + ["`web/e2e/b.spec.ts#other`", "`web2/e2e/c.spec.ts#second config`"]
+PYTEST_PROOFS = ["`tests/test_home.py#test_plain`", "`tests/test_home.py#test_method`", "`tests/test_home.py#test_param`",
+                 "`tests/test_home.py#test_colon`", "`tests/test_home.py#test_mixed`", "`tests/test_home.py#test_mixed_back`"]
+
+
+class Case(NamedTuple):
+    name: str
+    needs: frozenset  # the runners the case needs; it is skipped when one is missing
+    exit_code: int
+    text: str  # must appear in the output
+    feature_map: object  # FEATURES.md text, or None for a missing file
+    files: object = None  # a loud-failure case brings its own scratch project
+    configs: object = None  # the Playwright configs ./check would name; default: every one in `files`
+    timeout: object = None  # seconds a runner may take during the case
+    trace: object = None  # (file under the scratch project, lines): how often a fake runner must have started
+    only_once: object = None  # text that must appear exactly once in the output
+    dead: object = None  # a file under the scratch project holding the pid of a process that must be gone afterwards
+
+
+def row(proof):
+    return f"| X | y | z | {proof} | w |\n"
+
+
+def version_of(command, cwd):
+    """The version a runner prints, or the reason it did not."""
+    try:
+        result = run(command, cwd)
+    except RunnerError as error:
+        return None, str(error)
+    if result.returncode != 0:
+        return None, output_tail(result, 2)
+    version = re.search(r"\d+\.\d+[\w.-]*", result.stdout)  # "Version 1.64.0", "vitest/5.0.3 ...", "pytest 9.1.1"
+    return (version.group() if version else None), (None if version else f"could not read a version from {result.stdout.strip()!r}")
+
+
+def installed_runners(project):
+    """Which runners the project has: the node_modules folder holding Playwright and Vitest
+    (found next to the project's own config files), and whether uv can run pytest."""
+    runners, reasons = {}, {}
+    for name, pattern in (("playwright", PLAYWRIGHT_CONFIG), ("vitest", VITEST_CONFIG)):
+        configs = find_configs(project, pattern)
+        if not configs:
+            reasons[name] = f"no {name}.config.* in the project"
+            continue
+        try:
+            binary = node_binary(project, configs[0], name)
+        except RunnerError as error:
+            reasons[name] = str(error)
+            continue
+        version, why = version_of([str(binary), "--version"], configs[0].parent)
+        if version:
+            runners[name] = (binary.parent.parent, version)
+        else:
+            reasons[name] = why
+    if any((project / name).is_file() for name in PYTEST_INIS):
+        version, why = version_of(["uv", "run", "--locked", "--project", str(project), "pytest", "--version"], project)
+        if version:
+            runners["pytest"] = (project, version)
+        else:
+            reasons["pytest"] = why
+    else:
+        reasons["pytest"] = "no pytest.ini or pyproject.toml in the project"
+    return runners, reasons
+
+
+def write_files(root, files):
+    for path, content in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, Path):
+            target.symlink_to(content, target_is_directory=True)
+        else:
+            target.write_text(content, encoding="utf-8")
+            if target.parent.name == ".bin":
+                target.chmod(0o755)
+
+
+def web(spec, beside=None, **more):
+    """A scratch project with one Playwright config beside its spec file, and `beside` as the
+    node_modules folder next to the config when given."""
+    files = {"web/playwright.config.ts": PLAYWRIGHT_CONFIG_FIXTURE, "web/e2e/a.spec.ts": spec, **more}
+    if beside is not None:
+        files["web/node_modules"] = beside
+    return files
+
+
+def fixture_files(runners):
+    """The scratch project the self-test checks maps against: one folder per runner the project has.
+    Playwright has two configs: web/ with its own node_modules, web2/ that finds them by walking up
+    to the root, plus a symlinked copy of web/ and decoy configs in a hidden folder and under
+    node_modules that must stay unseen."""
+    files = {}
+    if "playwright" in runners:
+        node_modules = runners["playwright"][0]
+        files.update(web(SPEC, node_modules, **{"web/e2e/b.spec.ts": OTHER_SPEC, "node_modules": node_modules}))
+        files.update({"web2/playwright.config.ts": PLAYWRIGHT_CONFIG_FIXTURE, "web2/e2e/c.spec.ts": SECOND_SPEC,
+                      "web2/node_modules/pkg/playwright.config.ts": PLAYWRIGHT_CONFIG_FIXTURE, "web2/node_modules/pkg/e2e/d.spec.ts": DECOY_SPEC,
+                      ".hidden/playwright.config.ts": PLAYWRIGHT_CONFIG_FIXTURE, ".hidden/e2e/d.spec.ts": DECOY_SPEC,
+                      "web3/playwright.config.ts": Path("../web/playwright.config.ts"), "web3/e2e": Path("../web/e2e")})  # a symlinked copy of web/
+    if "vitest" in runners:
+        files.update({"unit/vitest.config.ts": VITEST_CONFIG_FIXTURE, "unit/node_modules": runners["vitest"][0], "unit/src/unit.test.ts": UNIT})
+    if "pytest" in runners:
+        files.update({"pytest.ini": PYTEST_INI_FIXTURE, "tests/test_home.py": PY})
+    files["../outside.spec.ts"] = OTHER_SPEC  # a parent exists, so a case can place a file outside the project
+    return files
+
+
+def configs_in(files):
+    """The Playwright configs ./check would name in a scratch project: every visible one."""
+    return tuple(sorted(path for path in files if PLAYWRIGHT_CONFIG.match(Path(path).name)
+                        and "node_modules" not in Path(path).parts and not any(part.startswith(".") for part in Path(path).parts)))
+
+
+def cases(runners):
+    proofs = (PLAYWRIGHT_PROOFS if "playwright" in runners else []) + (PYTEST_PROOFS if "pytest" in runners else [])
+    good = "".join(row(proof) for proof in proofs)
+    without = lambda proof: "".join(row(p) for p in proofs if p != proof)  # noqa: E731
+    e2e = proofs[0] if proofs else "`web/e2e/a.spec.ts#plain test`"
+    e2e_file = e2e.split("#")[0] + "`"
+    two_columns = "| Feature | Proof |\n|---|---|\n" + "".join(f"| X | {p} |\n" for p in proofs)
+    pw, vt, py = frozenset({"playwright"}), frozenset({"playwright", "vitest"}), frozenset({"pytest"})
+    e2e_runner = pw if "playwright" in runners else py
+    modules = runners["playwright"][0] if "playwright" in runners else None
+    unit_good = HEADER + "".join(row(p) for p in A_PROOFS[1:]) + row(f"{A_PROOFS[0]}, `unit/src/unit.test.ts#renders`")
+    return [
+        # The map itself.
+        Case("FEATURES.md missing", e2e_runner, 1, "is missing", None),
+        Case("FEATURES.md empty", e2e_runner, 1, "no feature rows", ""),
+        Case("row with no proof", e2e_runner, 1, "no Proof", HEADER + good + row("")),
+        Case("proof names no test", e2e_runner, 1, "names no test", HEADER + good + row(e2e_file)),
+        Case("proof file missing", e2e_runner, 1, "does not exist", HEADER + good + row("`web/e2e/nope.spec.ts#plain test`")),
+        Case("proof file outside the project", e2e_runner, 1, "inside the project", HEADER + good + row("`../outside.spec.ts#other`")),
+        Case("blank line inside the table", e2e_runner, 1, "outside any table", HEADER + good + "\n" + row(e2e)),
+        Case("row without a leading pipe outside any table", e2e_runner, 1, "outside any table", HEADER + good + "\n" + f"X | y | z | {e2e} | w\n"),
+        Case("proofless row without a leading pipe outside any table", e2e_runner, 1, "outside any table",
+             HEADER + good + "\n" + "Search | finds things | type in the box | | nothing found\n"),
+        Case("two-pipe row outside any table", e2e_runner, 1, "outside any table", HEADER + good + "\n" + "Search | finds things | nothing found\n"),
+        Case("one-pipe row outside a two-column table", e2e_runner, 1, "outside any table", two_columns + "\n" + f"X | {e2e}\n"),
+        Case("one-pipe row with a file-only proof outside a two-column table", e2e_runner, 1, "outside any table", two_columns + "\n" + f"X | {e2e_file}\n"),
+        Case("wrong column count", e2e_runner, 1, "columns", HEADER + good + f"| X | y | {e2e} |\n"),
+        Case("short row without a leading pipe", e2e_runner, 1, "columns", HEADER + good + "Greeting | says hello | open the site\n"),
+        Case("row of empty cells is not a separator", e2e_runner, 1, "no Proof", HEADER + good + "| | | | | |\n"),
+        Case("Feature table without a Proof column", e2e_runner, 1, "no Proof column", f"| Feature | What it does | Proofs |\n|---|---|---|\n| X | y | {e2e} |\n"),
+        Case("good map passes", e2e_runner, 0, "every proof found", HEADER + good),
+        Case("row without a leading pipe still counts", e2e_runner, 0, "every proof found", HEADER + without(e2e) + f"X | y | z | {e2e} | w\n"),
+        Case("a second table without a Proof column is ignored", e2e_runner, 0, "every proof found", HEADER + good + "\n| Layer | Meaning |\n|---|---|\n| unit | logic |\n"),
+        Case("prose with one pipe in backticks is not a row", e2e_runner, 0, "every proof found", "Proofs are separated by commas, not by `|`.\n\n" + HEADER + good),
+        # What Playwright lists.
+        Case("name only in a line comment", pw, 1, "no running test", HEADER + good + row("`web/e2e/a.spec.ts#in a line comment`")),
+        Case("name only in a block comment", pw, 1, "no running test", HEADER + good + row("`web/e2e/a.spec.ts#in a block comment`")),
+        Case("skipped test", pw, 1, "as skipped or expected to fail", HEADER + good + row("`web/e2e/a.spec.ts#skipped`")),
+        Case("fixme test", pw, 1, "as skipped or expected to fail", HEADER + good + row("`web/e2e/a.spec.ts#fixmed`")),
+        Case("a test expected to fail proves nothing", pw, 1, "as skipped or expected to fail", HEADER + good + row("`web/e2e/a.spec.ts#expected to fail`")),
+        Case("test inside a skipped group", pw, 1, "as skipped or expected to fail", HEADER + good + row("`web/e2e/a.spec.ts#inside a skipped group`")),
+        Case("substring of a longer name", pw, 1, "no running test", HEADER + good + row("`web/e2e/a.spec.ts#plain`")),
+        Case("group name", pw, 1, "no running test", HEADER + good + row("`web/e2e/a.spec.ts#group`")),
+        Case("a title shared by two groups needs the group", pw, 1, "Name the group too", HEADER + good + row("`web/e2e/a.spec.ts#grouped twice`")),
+        Case("a plain title names the plain test, not its namesake in a group", pw, 1, "the test 'group > shared name' has no row",
+             HEADER + without("`web/e2e/a.spec.ts#group > shared name`")),
+        Case("e2e file with no row", pw, 1, "test file with no row in FEATURES.md", HEADER + without("`web/e2e/b.spec.ts#other`")),
+        Case("a listed end-to-end test with no row", pw, 1, "the test 'generated 2' has no row", HEADER + without("`web/e2e/a.spec.ts#generated 2`")),
+        Case("a grouped end-to-end test with no row", pw, 1, "the test 'other group > grouped twice' has no row", HEADER + without("`web/e2e/a.spec.ts#other group > grouped twice`")),
+        Case("a second config's file with no row", pw, 1, "web2/e2e/c.spec.ts: an end-to-end test file with no row", HEADER + without("`web2/e2e/c.spec.ts#second config`")),
+        Case("a proof file that no runner lists", pw, 1, "no vitest.config.* sits above it", HEADER + good + row("`web/playwright.config.ts#plain test`")),
+        Case("a spec file of only skipped tests needs a row", pw, 1, "later.spec.ts: an end-to-end test file with no row",
+             HEADER + "".join(row(p) for p in A_PROOFS), web(SPEC, modules, **{"web/e2e/later.spec.ts": SKIPPED_SPEC})),
+        Case("a Playwright config ./check does not run", pw, 1, "does not run", HEADER + "".join(row(p) for p in A_PROOFS),
+             web(SPEC, modules, **{"legacy/playwright.config.ts": PLAYWRIGHT_CONFIG_FIXTURE}), configs=("web/playwright.config.ts",)),
+        Case("a named config that does not exist", pw, 1, "is not a file inside the project", HEADER + "".join(row(p) for p in A_PROOFS),
+             web(SPEC, modules), configs=("web/playwright.config.ts", "gone/playwright.config.ts")),
+        Case("a focused test fails the listing", pw, 1, "'.only'", HEADER + row("`web/e2e/a.spec.ts#plain test`"), web(FOCUSED_SPEC, modules)),
+        Case("a file that fails to parse fails the listing", pw, 1, "SyntaxError", HEADER + row("`web/e2e/a.spec.ts#plain test`"), web(BROKEN_SPEC, modules)),
+        Case("a missing runner fails loudly", e2e_runner, 1, "is not installed", HEADER + row("`web/e2e/a.spec.ts#plain test`"), web(SPEC)),
+        Case("a runner that writes no list fails loudly", e2e_runner, 1, "no list the checker can read", HEADER + row("`web/e2e/a.spec.ts#plain test`"),
+             web(SPEC, **{"web/node_modules/.bin/playwright": FAKE_RUNNER["writes nothing"]})),
+        Case("a runner that reports an error and exits 0 fails loudly", e2e_runner, 1, "boom in a fake runner", HEADER + row("`web/e2e/a.spec.ts#plain test`"),
+             web(SPEC, **{"web/node_modules/.bin/playwright": FAKE_RUNNER["exit 0 with an error"]})),
+        Case("a runner that exits 1 with a clean report fails loudly", e2e_runner, 1, "could not list the tests", HEADER + row("`web/e2e/a.spec.ts#plain test`"),
+             web(SPEC, **{"web/node_modules/.bin/playwright": FAKE_RUNNER["exit 1 with a clean report"]})),
+        Case("a list the checker cannot read fails loudly", e2e_runner, 1, "does not understand", HEADER + row("`web/e2e/a.spec.ts#plain test`"),
+             web(SPEC, **{"web/node_modules/.bin/playwright": FAKE_RUNNER["unreadable shape"]})),
+        Case("a runner that hangs is killed with its children", e2e_runner, 1, "took longer than", HEADER + row("`web/e2e/a.spec.ts#plain test`"),
+             web(SPEC, **{"web/node_modules/.bin/playwright": FAKE_RUNNER["hangs"]}), timeout=1, dead="web/node_modules/.bin/playwright.pid"),
+        Case("a named config outside the project", e2e_runner, 1, "is not a file inside the project", HEADER + row("`web/e2e/a.spec.ts#plain test`"),
+             web(SPEC, **{"../playwright.config.ts": PLAYWRIGHT_CONFIG_FIXTURE}), configs=("../playwright.config.ts",)),
+        Case("a symlinked config's own spec file needs a row", pw, 1, "link/e2e/x.spec.ts: an end-to-end test file with no row", HEADER + "".join(row(p) for p in A_PROOFS),
+             web(SPEC, modules, **{"link/playwright.config.ts": Path("../web/playwright.config.ts"), "link/e2e/x.spec.ts": OTHER_SPEC, "node_modules": modules})),
+        Case("no runner at all fails loudly", e2e_runner, 1, "no test runner found", HEADER + row("`web/e2e/a.spec.ts#plain test`"), {"web/e2e/a.spec.ts": SPEC}),
+        # What Vitest lists, for the unit tests a row may add after its end-to-end test.
+        Case("an end-to-end test first and a unit test second", vt, 0, "every proof found", HEADER + without(e2e) + row(f"{e2e}, `unit/src/unit.test.ts#renders`")),
+        Case("a unit test named with its group", vt, 0, "every proof found", HEADER + without(e2e) + row(f"{e2e}, `unit/src/unit.test.ts#Home page > renders`")),
+        Case("a top-level unit test", vt, 0, "every proof found", HEADER + without(e2e) + row(f"{e2e}, `unit/src/unit.test.ts#top level unit`")),
+        Case("first proof is a unit test", vt, 1, "is not an end-to-end test", HEADER + good + row("`unit/src/unit.test.ts#renders`")),
+        Case("a unit test before the end-to-end proof", vt, 1, "is not an end-to-end test", HEADER + good + row(f"`unit/src/unit.test.ts#renders`, {e2e}")),
+        Case("a skipped unit test proves nothing", vt, 1, "no running test", HEADER + good + row(f"{e2e}, `unit/src/unit.test.ts#skipped unit`")),
+        Case("a unit test in a branch that never runs proves nothing", vt, 1, "no running test", HEADER + good + row(f"{e2e}, `unit/src/unit.test.ts#never registered`")),
+        Case("an extra proof names no test", vt, 1, "names no test", HEADER + good + row(f"{e2e}, `unit/src/unit.test.ts`")),
+        Case("a unit test file Vitest does not include", vt, 1, "does not include it", HEADER + good + row(f"{e2e}, `unit/vitest.config.ts#renders`")),
+        Case("a focused unit test fails the listing", vt, 1, "focused", unit_good,
+             web(SPEC, modules, **{"unit/vitest.config.ts": VITEST_CONFIG_FIXTURE, "unit/node_modules": runners.get("vitest", (None,))[0], "unit/src/unit.test.ts": FOCUSED_UNIT})),
+        Case("a unit file that fails to parse fails the listing", vt, 1, "could not list the tests", unit_good,
+             web(SPEC, modules, **{"unit/vitest.config.ts": VITEST_CONFIG_FIXTURE, "unit/node_modules": runners.get("vitest", (None,))[0], "unit/src/unit.test.ts": BROKEN_UNIT})),
+        Case("a unit file that throws when loaded fails the listing", vt, 1, "boom at import", unit_good,
+             web(SPEC, modules, **{"unit/vitest.config.ts": VITEST_CONFIG_FIXTURE, "unit/node_modules": runners.get("vitest", (None,))[0], "unit/src/unit.test.ts": THROWING_UNIT})),
+        Case("a failing Vitest is asked once for two rows", pw, 1, "vitest-start",
+             HEADER + "".join(row(p) for p in A_PROOFS[2:]) + row(f"{A_PROOFS[0]}, `unit/src/unit.test.ts#renders`") + row(f"{A_PROOFS[1]}, `unit/src/unit.test.ts#top level unit`"),
+             web(SPEC, modules, **{"unit/vitest.config.ts": VITEST_CONFIG_FIXTURE, "unit/node_modules/.bin/vitest": FAKE_VITEST, "unit/src/unit.test.ts": UNIT}),
+             trace=("unit/node_modules/.bin/vitest.log", 1), only_once="Vitest could not list"),
+        # What pytest lists.
+        Case("python def only in a comment", py, 1, "no running test", HEADER + good + row("`tests/test_home.py#test_commented`")),
+        Case("python helper def is not a test", py, 1, "no running test", HEADER + good + row("`tests/test_home.py#helper`")),
+        Case("python skipped test proves nothing", py, 1, "as skipped or expected to fail", HEADER + good + row("`tests/test_home.py#test_skipped`")),
+        Case("python skipif test proves nothing", py, 1, "as skipped or expected to fail", HEADER + good + row("`tests/test_home.py#test_skipif`")),
+        Case("python xfail test proves nothing", py, 1, "as skipped or expected to fail", HEADER + good + row("`tests/test_home.py#test_xfail`")),
+        Case("python unit test first", py, 1, "is not an end-to-end test", HEADER + good + row("`tests/test_home.py#test_unit`")),
+        Case("python unit test second", py, 0, "every proof found", HEADER + without("`tests/test_home.py#test_plain`") + row("`tests/test_home.py#test_plain`, `tests/test_home.py#test_unit`")),
+        Case("python test named with its class", py, 0, "every proof found", HEADER + without("`tests/test_home.py#test_method`") + row("`tests/test_home.py#TestHome > test_method`")),
+        Case("a listed python test with no row", py, 1, "the test 'test_param' has no row", HEADER + without("`tests/test_home.py#test_param`")),
+        Case("a python file of only skipped tests needs a row", py, 1, "test_later.py: an end-to-end test file with no row",
+             HEADER + "".join(row(p) for p in PYTEST_PROOFS), {"pytest.ini": PYTEST_INI_FIXTURE, "tests/test_home.py": PY, "tests/test_later.py": SKIPPED_PY}),
+        Case("a python project with no tests fails loudly", py, 1, "no running end-to-end test", HEADER + row("`tests/helpers.py#test_plain`"),
+             {"pytest.ini": PYTEST_INI_FIXTURE, "tests/helpers.py": "def helper():\n    pass\n"}),
+        Case("a python file that fails to parse fails the listing", py, 1, "SyntaxError", HEADER + row("`tests/test_home.py#test_plain`"),
+             {"pytest.ini": PYTEST_INI_FIXTURE, "tests/test_home.py": BROKEN_PY}),
+    ]
+
+
+def alive(pid, patience=3.0):
+    """Whether a process still exists after up to `patience` seconds: a killed child needs a moment to be reaped."""
+    deadline = time.monotonic() + patience
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        if time.monotonic() > deadline:
+            return True
+        time.sleep(0.1)
+
+
+@contextlib.contextmanager
+def runner_timeout(seconds):
+    global RUNNER_TIMEOUT
+    usual, RUNNER_TIMEOUT = RUNNER_TIMEOUT, seconds
+    try:
+        yield
+    finally:
+        RUNNER_TIMEOUT = usual
+
+
+def self_test():
+    project = Path.cwd().resolve()
+    runners, reasons = installed_runners(project)
+    if "playwright" not in runners and "pytest" not in runners:
+        print("check-features self-test FAILED: no end-to-end test runner (Playwright or pytest) is installed here, so nothing can be proved.", file=sys.stderr)
+        for name, why in reasons.items():
+            print(f"  - {name}: {why}", file=sys.stderr)
+        return 1
+    pytest_project = runners["pytest"][0] if "pytest" in runners else None
+    failures, ran, skipped = 0, 0, []
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture = Path(tmp) / "my project (x)"  # spaces and parentheses, so every runner is asked through such a path
+        fixture.mkdir()
+        files = fixture_files(runners)
+        write_files(fixture, files)
+        fixture_configs = configs_in(files)
+        for index, case in enumerate(cases(runners)):
+            if not case.needs <= set(runners):
+                skipped.append(case.name)
+                continue
+            ran += 1
+            if case.files is None:
+                root, configs = fixture, fixture_configs
+            else:
+                root = Path(tmp) / f"case-{index}"
+                root.mkdir()
+                write_files(root, case.files)
+                configs = case.configs if case.configs is not None else configs_in(case.files)
+            feature_map = root / "FEATURES.md"
+            if case.feature_map is None:
+                feature_map.unlink(missing_ok=True)
+            else:
+                feature_map.write_text(case.feature_map, encoding="utf-8")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output), runner_timeout(case.timeout or RUNNER_TIMEOUT):
+                code = main(root, configs, pytest_project)
+            text = output.getvalue()
+            wrong = []
+            if code != case.exit_code or case.text not in text:
+                wrong.append(f"exited {code} (expected {case.exit_code}, with {case.text!r} in the output)")
+            if case.trace and (starts := len((root / case.trace[0]).read_text().splitlines()) if (root / case.trace[0]).is_file() else 0) != case.trace[1]:
+                wrong.append(f"started the runner {starts} time(s), not {case.trace[1]}")
+            if case.only_once and text.count(case.only_once) != 1:
+                wrong.append(f"printed {case.only_once!r} {text.count(case.only_once)} time(s), not once")
+            if case.dead and alive(int((root / case.dead).read_text())):
+                wrong.append("left the runner's child process running")
+            if wrong:
+                failures += 1
+                print(f"check-features self-test FAILED: {case.name!r} " + "; ".join(wrong) + ".", file=sys.stderr)
+                print(text, file=sys.stderr)
+        # The guard above this loop: a folder with no runner cannot prove anything.
+        empty = Path(tmp) / "empty"
+        empty.mkdir()
+        guard = subprocess.run([sys.executable, __file__, "--self-test"], cwd=str(empty), capture_output=True, text=True)
+        ran += 1
+        if guard.returncode != 1 or "no end-to-end test runner" not in guard.stderr:
+            failures += 1
+            print(f"check-features self-test FAILED: the self-test in a folder without a runner exited {guard.returncode} (expected 1 and a message).", file=sys.stderr)
+            print(guard.stdout + guard.stderr, file=sys.stderr)
+        # A checker told to stop (SIGTERM, as a cancelled ./check sends) takes its hung runner and the runner's children with it.
+        stopped = Path(tmp) / "stopped"
+        stopped.mkdir()
+        write_files(stopped, web(SPEC, **{"web/node_modules/.bin/playwright": FAKE_RUNNER["hangs"]}))
+        (stopped / "FEATURES.md").write_text(HEADER + row("`web/e2e/a.spec.ts#plain test`"), encoding="utf-8")
+        checker = subprocess.Popen([sys.executable, __file__, "web/playwright.config.ts"], cwd=str(stopped), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pid_file = stopped / "web/node_modules/.bin/playwright.pid"
+        for _ in range(50):  # the fake runner needs a moment to start its child and record it
+            if pid_file.is_file() and pid_file.read_text().strip():
+                break
+            time.sleep(0.1)
+        checker.send_signal(signal.SIGTERM)
+        checker.wait(timeout=30)
+        ran += 1
+        if not pid_file.is_file() or alive(int(pid_file.read_text())):
+            failures += 1
+            print("check-features self-test FAILED: a checker stopped with SIGTERM left its runner's child process running.", file=sys.stderr)
+    if failures:
+        print(f"check-features: {failures} of {ran} self-test cases failed.", file=sys.stderr)
+        return 1
+    proved = ", ".join(f"{name} {version}" for name, (_, version) in sorted(runners.items()))
+    absent = "; ".join(f"{name} not proved: {why}" for name, why in sorted(reasons.items()))
+    print(f"check-features: self-test passed, {ran} cases against {proved}." + (f" Skipped {len(skipped)} cases: {absent}." if skipped else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    for stop in (signal.SIGTERM, signal.SIGHUP):  # a stop from outside ends the check as an exception, so run() can kill its runner
+        signal.signal(stop, lambda number, frame: sys.exit(128 + number))
+    arguments = sys.argv[1:]
+    if arguments == ["--self-test"]:
+        sys.exit(self_test())
+    if any(argument.startswith("-") for argument in arguments):
+        print("check-features takes the Playwright config files ./check runs, or --self-test alone.", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(main(configs=arguments))

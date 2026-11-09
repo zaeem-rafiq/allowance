@@ -1,0 +1,42 @@
+# Runs ./check on GitHub for every push to main and every pull request.
+# The job id "check" is the status that branch protection on main requires.
+# Major versions were current on 8 Oct 2026. Before each new project, confirm them with:
+#   gh release view --repo actions/checkout   (and actions/setup-node, astral-sh/setup-uv)
+#
+# Python/uv projects: replace the three Node steps (setup-node, npm ci, Playwright) with:
+#      - uses: astral-sh/setup-uv@v10
+#      - run: uv sync --locked
+#
+# Secret scan: ./check runs gitleaks, so the job installs a pinned, checksum-verified copy
+# first, and checks out the full history so every commit is scanned.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks 8.30.1 (secret scanner)
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      # Keep only when the project has Playwright end-to-end tests:
+      - run: npx playwright install --with-deps chromium
+      - run: ./check

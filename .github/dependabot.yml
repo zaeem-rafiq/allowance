@@ -1,0 +1,32 @@
+# Monthly update pull requests, grouped so the owner sees one pull request per kind
+# instead of many.
+#
+# Major versions of the project's building blocks are skipped. They often need code
+# changes (for example ESLint 10 with TypeScript 7 broke linting in October 2026), so
+# Claude proposes them as a deliberate task instead. GitHub Actions still update across
+# major versions, because skipping those would eventually break the automatic checks.
+#
+# Security alerts are separate: GitHub reports vulnerable building blocks whatever this
+# file says. GitHub's documentation doesn't say whether its automatic security-fix pull
+# requests also skip major versions.
+#
+# Set the first package-ecosystem to "npm" (Next.js, Expo) or "uv" (Python).
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      all-updates:
+        patterns: ["*"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      all-actions:
+        patterns: ["*"]
