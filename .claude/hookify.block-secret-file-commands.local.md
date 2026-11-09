@@ -3,7 +3,7 @@ name: block-secret-file-commands
 enabled: true
 event: bash
 action: block
-pattern: (^|[\s<>|;&'"=/])\.env(\.(local|development|production|test|staging)(\.local)?)?($|[\s'";|&)>])
+pattern: (^|[\s<>|;&'"=/])\.env(?!(?:\.[\w-]+)*\.(?:example|sample|template)\.?(?:$|[\s'";|&)>]))(?:[._-][\w*?\[][\w.*?\[\]-]*|[*?\[][\w.*?\[\]-]*)?(?:$|[\s'";|&)>])
 ---
 
 ⛔ **Blocked: this command touches a secrets file (.env).**

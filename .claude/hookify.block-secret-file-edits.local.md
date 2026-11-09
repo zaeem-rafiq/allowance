@@ -6,7 +6,7 @@ action: block
 conditions:
   - field: file_path
     operator: regex_match
-    pattern: (^|/)\.env(\.(local|development|production|test|staging)(\.local)?)?$
+    pattern: (^|/)\.env(?!(?:\.[\w-]+)*\.(?:example|sample|template)$)(?:[._-][\w.-]*)?$
 ---
 
 ⛔ **Blocked: this edit changes a secrets file (.env).**
