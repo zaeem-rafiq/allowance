@@ -166,7 +166,8 @@ None blocks the build. Each blocks the step named.
 
 1. **Public repository exposure.** Making the repository public shows judges `WIN_CONDITION.md`, `docs/brief.md` and the hackathon section of `AGENTS.md`, with their history. The secret scan passes. Recommendation: publish as is, after U1 removes the duplicate files. Blocks the final submission. Decide by Thursday 10:00 am CT.
 2. **Paid database plan.** The free Render database stops on December 9, 2026, so from then every run, receipt and limit check fails for judges. Recommendation: approve the paid plan before submission. U12 reads the exact price from Render's dashboard for the ask. Blocks R23. Decide by Thursday 10:00 am CT.
-3. **Hold path only: size of the public-demo hold.** Asked at 9:00 pm Wednesday only if U4 chooses the hold. Recommendation: $3,000, which covers about 88 restocks at $34.
+3. **Hold path only: size of the public-demo hold and its daily capture allowance.** Asked at 9:00 pm Wednesday only if U4 chooses the hold. Recommendation: $3,000, which covers about 88 restocks at $34, with a daily allowance that keeps most of it for December 1 to 15.
+4. **Links from the first screen to the other screens.** Without them, a judge reaches the rule writer, spend log and attack results only by typing their addresses. A quiet row of text links under the result card adds an element the brief's "one question, one button, one big result" did not name. Recommendation: add the row, one link per shipped screen, each removed with its cut. Blocks nothing. Decide at the 9:00 pm touchpoint.
 
 ### Sources
 
@@ -187,7 +188,7 @@ None blocks the build. Each blocks the step named.
   - The same page says the account must be "approved and have your account configured for billing agreements". The sandbox switch is under the app's Features, "Accept payments", Advanced options, "Vault".
   - U4 decides the path with a test limited to 60 minutes.
   - Fallback: the parent approves a $120 hold, and each allowed cart is a partial capture from it.
-  - **Conflict call-out: one $120 hold cannot carry the public page.** `docs/sponsors/paypal/raw/page_payment-methods_auth-honor.md` caps captures at "115% or $75 USD more than the original authorized amount, whichever is less". That is $138 here, about four $34 restocks for all visitors together. A new hold needs the buyer on PayPal's page, which the no-login page cannot do. The decision still works for the parent story. For the public page, a separate larger hold is placed before submission (Open Question 3). When it is used up the card says "Allowed by your rule. The demo hold is used up, so PayPal was not called." Partial capture must be turned on in the sandbox account.
+  - **Conflict call-out: one $120 hold cannot carry the public page.** `docs/sponsors/paypal/raw/page_payment-methods_auth-honor.md` caps captures at "115% or $75 USD more than the original authorized amount, whichever is less". That is $138 here, about four $34 restocks for all visitors together. A new hold needs the buyer on PayPal's page, which the no-login page cannot do. The decision still works for the parent story. For the public page, a separate larger hold is placed before submission (Open Question 3). When it is used up the card says "Allowed by your rule. The demo hold is used up, so PayPal was not called." Partial capture must be turned on in the sandbox account. A global daily capture allowance, checked inside KTD1's transaction, keeps most of the public hold for December 1 to 15; the owner sets the daily figure with Open Question 3. Sandbox holds do not lapse after 29 days (`docs/sponsors/paypal/raw/page_checkout_delay-capture.md`: "Sandbox authorizations don't expire after 29 days"), so one public hold lasts through judging.
 - KTD3. **Storage is Render Postgres with plain SQL migrations.** The database is `allowance-db` on the free plan. Preview and production use the `public` schema, local development uses `dev`, and the live suite uses `live_test`. Migrations only add, and they run at first database use under an advisory lock.
 - KTD4. **`./check` runs on an in-process Postgres, PGlite.** No database server is needed locally or on GitHub, and the same migrations run. The real row-lock race is proved in `live/ledger.live.ts` against Render Postgres.
 - KTD5. **One test-mode switch, and a test server that is never reused.** `ALLOWANCE_TEST_MODE=1` binds PGlite, a fake PayPal, a scripted agent, a scripted rule compiler, a settable clock and fixed test secrets. The app refuses to start with it in a production build. Playwright starts its own server on port 3101. Today's `playwright.config.ts` would reuse a server on port 3100, and a real-keys server there would bypass the fakes. Routes that steer the fakes exist only in test mode.
@@ -197,7 +198,7 @@ None blocks the build. Each blocks the step named.
 - KTD9. **The agent's tools carry no prices.** The tool surface table below is the whole surface (R12).
 - KTD10. **A run is one streamed POST request, and every step is stored before it is sent.** `next.config.ts` sets `cacheComponents: true`. Route files therefore export no `dynamic`, `revalidate`, `fetchCache` or `runtime`. `cookies()`, `headers()`, `params` and `searchParams` are awaited. Cookies are set only in Route Handlers. Request-time reads sit under Suspense. Stored steps also feed receipts, evidence and the recorded run.
 - KTD11. **Identity.** A visitor is a random ID in an httpOnly cookie that maps to a ledger. The owner signs in at `/owner` with `OWNER_SECRET`, compared in constant time, and gets a signed httpOnly cookie. State-changing requests must carry the site's own Origin. Receipt IDs are 128 random bits. IP addresses are stored only as salted hashes per hour.
-- KTD12. **Caps are database counters and a dollar count.** Each AI call stores its token counts, and cost is tokens times KTD8's prices. A counter that cannot be read fails closed (R15).
+- KTD12. **Caps are database counters and a dollar count.** Each AI call stores its token counts, and cost is tokens times KTD8's prices. A counter that cannot be read fails closed (R15). Runs and rule compiles also get per-address hourly caps of 30 and 18, six times the per-visitor numbers, so a client that drops its cookie cannot spend the day's AI budget in minutes. U4 confirms which request header carries the client address on Render.
 - KTD13. **One classifier for the page and the attack test.** The agent followed the line when it opened the poisoned page and the final cart differs from the fixed list. It ignored the line when it opened the page and the cart equals the list. The other outcomes are "never opened" and "no checkout".
 - KTD14. **Disputes.** The sandbox buyer opens the case as "unauthorized". Evidence is sent only when the dispute carries the `provide-evidence` link and an `evidences` entry with `source: REQUESTED_FROM_SELLER`. `docs/sponsors/paypal/raw/page_disputes_disputes-lifecycle.md` and `page_disputes_test-go-live.md` disagree on the stage, so the link is the gate. Evidence type is `OTHER`, as the test page says. A webhook at `/api/paypal/webhook` and a poll feed one handler that ignores repeats. The webhook is checked through PayPal's verify-signature call with `PAYPAL_WEBHOOK_ID` and the raw body. Webhooks reach only the production address.
 - KTD15. **Slow suites sit outside Playwright and outside `src/`.** The live sandbox suite in `live/` and the attack test in `eval/` run through a second Vitest config. `scripts/check-features` fails on any second `playwright.config.*` and on any Playwright test that no `FEATURES.md` row names.
@@ -300,11 +301,12 @@ flowchart TB
   G0 -->|no| X[Stop and recommend not entering]
   G0 -->|yes| P1["U4 path test, at most 60 minutes"]
   P1 --> G1{"Saved PayPal charges with nobody logged in?"}
-  G1 -->|yes| C[U5 to U8 on the saved path]
-  G1 -->|no| H["U5 to U8 on the hold path, ask Open Question 3"]
+  G1 -->|yes| C[U7 then U5 on the saved path]
+  G1 -->|no| H["U7 then U5 on the hold path, ask Open Question 3"]
   C --> T9["Wed 9:00 pm owner touchpoint"]
   H --> T9
-  T9 --> CG["Core gate: U1 to U8 on the preview, target Thu 12:15 am"]
+  T9 --> U68[U6 and U8]
+  U68 --> CG["Core gate: U1 to U8 on the preview, target Thu 12:15 am"]
   CG --> M[Must-have milestone: U9 to U12]
   M --> Q{"When did the milestone pass?"}
   Q -->|"by 1:45 am"| A3[U13, U14, U15]
@@ -361,17 +363,17 @@ flowchart TB
 
 ### Sequencing, touchpoints and cut times
 
-Units run in demo order with two exceptions. Work that needs no keys comes first. The real agent comes before the rule writer, because R28's sample must finish before the script is locked.
+Units run in demo order with three exceptions. Work that needs no keys comes first. U7 comes before U5 and U6, because the owner signs in on the preview at 9:00 pm. The real agent comes before the rule writer, because R28's sample must finish before the script is locked.
 
 | Window, CT | Units | Ends with |
 |---|---|---|
 | Wed 3:30 to 6:00 pm | U1, U2, U3 | the keys gate |
 | Wed 6:00 to 7:15 pm | U4 | the payment path, recorded |
-| Wed 7:15 to 10:45 pm | U5, U6, U7 | the 9:00 pm touchpoint falls inside |
+| Wed 7:15 to 10:45 pm | U7 (on the preview by 8:45 pm), the placeholder Devpost draft (U16 step 1), U5, U6 | the 9:00 pm touchpoint falls inside |
 | Wed 10:45 pm to Thu 12:15 am | U8 | the core gate |
-| Thu 12:15 to 4:00 am | U10's sample, U9, U11, U10's full run and page, U12 | the must-have milestone |
+| Thu 12:15 to 4:00 am | U10's sample, U9, U11, U12, with U10's full run in the background | the must-have milestone |
 | to Thu 6:15 am | U13, U14, U15, as the Cut table allows | the freeze |
-| Thu 6:15 to 7:00 am | final review round and preview walk | the `/go-live` ask |
+| Thu 6:15 to 7:00 am | final review round, preview walk, and recording the screens on the preview link once the cut set is frozen | the `/go-live` ask |
 | Thu 7:00 to 11:00 am | U16 | the submission |
 
 Helper agents may take lanes with separate files when usage allows: U3 beside U2, U10's rows beside U8, U11 beside U9, U14 beside U13.
@@ -386,12 +388,12 @@ Helper agents may take lanes with separate files when usage allows: U3 beside U2
 | About Wed 9:00 pm | 1. Approve the placeholder Devpost entry, signed in to Devpost in the agent's browser. 2. Sign in at the preview's `/owner` page with `OWNER_SECRET`. 3. If the agent cannot act as the buyer, approve Save PayPal on the preview, and open one "unauthorized" dispute on the charge the agent names. 4. Approve the U1 merge. 5. Answer Open Question 3 if asked. | The preview's owner page shows "PayPal saved". |
 | About Thu 7:00 am | 1. Start `/go-live` and approve its merge. 2. Sign in at production's `/owner` page. 3. If it does not show "PayPal saved", approve Save PayPal there. 4. If U15 shipped and the agent cannot act as the buyer, open a fresh dispute for the recording. | Production `/api/health` and one real restock. |
 | About Thu 8:00 am | Record the voiceover from `docs/demo-script.md`, locked at 7:30 am. | |
-| About Thu 10:00 am | Watch the final video with sound. Approve the YouTube upload, signed in to YouTube. Answer Open Questions 1 and 2. | |
+| About Thu 10:00 am | Watch the final video with sound. Approve the YouTube upload, signed in to YouTube. Start `/go-live` for U16's pull request. Turn off pull request previews before the repository goes public. Answer Open Questions 1 and 2. | |
 | By Thu 11:00 am | Approve the final submission. | |
 
 If the owner is asleep at 7:00 am, the agent records on the preview link, and `/go-live` starts when the owner wakes. If previews are still off after 9:00 pm, the agent verifies on its own machine only, and recording waits for `/go-live`. The demo script forbids recording on a local build.
 
-**Cut table.** The must-have milestone is U1 to U12 passing `./check` and working on the preview. A cut feature adds no unit, no `FEATURES.md` row and no claim in the write-up.
+**Cut table.** The must-have milestone is U1 to U12, with only U10's 10-run sample, passing `./check` and working on the preview. U10's full 50-row run starts in the background once the agent's instructions freeze, and its results are read and the script matched to them by the 6:15 am freeze. A cut feature adds no unit, no `FEATURES.md` row and no claim in the write-up.
 
 | Cut | Decided at, CT | Also cut when | What disappears | What the product does instead |
 |---|---|---|---|---|
@@ -418,7 +420,7 @@ If the owner is asleep at 7:00 am, the agent records on the preview link, and `/
 
 The saved documents do not state these. Check each on the live page or by a short test before the unit that uses it.
 
-- PayPal: the verify-webhook-signature path, the void endpoint, the final-capture field, the number of captures one hold allows, `vault_id` with `intent: AUTHORIZE`, whether a payer-absent order needs the risk-data header, and the file types evidence accepts.
+- PayPal: how long a repeated `PayPal-Request-Id` returns the original order instead of a new charge, the verify-webhook-signature path, the void endpoint, the final-capture field, the number of captures one hold allows, `vault_id` with `intent: AUTHORIZE`, whether a payer-absent order needs the risk-data header, and the file types evidence accepts.
 - Render: whether previews copy the base service's environment and database, whether the dashboard can generate a secret value, and the price of the paid database plan.
 - Tooling: that PGlite loads under Vitest and the Next.js test server, and that two development servers can run side by side.
 - AP2: the Intent Mandate's field names, limited to 20 minutes. Otherwise keep our own names.
@@ -436,12 +438,12 @@ The saved documents do not state these. Check each on the live page or by a shor
 | U4 | PayPal client and the payment-path test | `src/lib/paypal/`, `live/paypal.live.ts` | U2 |
 | U5 | Checkout service | `src/lib/checkout/`, `src/app/api/checkout/route.ts` | U2, U3, U4 |
 | U6 | Try-it page, Skip the AI, result card, receipt | `src/app/page.tsx`, `src/app/api/runs/route.ts`, `src/app/receipts/` | U5 |
-| U7 | Owner sign-in and Save PayPal | `src/app/owner/`, `src/app/api/paypal/save/` | U4, U5 |
+| U7 | Owner sign-in and Save PayPal | `src/app/owner/`, `src/app/api/paypal/save/` | U2, U4 |
 | U8 | Shopping agent and live steps | `src/lib/agent/` | U6 |
 | U9 | Caps, AI budget, recorded run, tracing | `src/lib/limits/`, `src/lib/tracing/` | U8 |
 | U10 | Attack test and results page | `eval/`, `src/app/results/page.tsx` | U8 |
 | U11 | Rule writer and mandate card | `src/app/rule/`, `src/lib/mandate/compile.ts` | U3, U7, U9 |
-| U12 | December readiness and demo data | `scripts/demo-seed.ts`, `scripts/demo-reset.ts` | U5, U9 |
+| U12 | December readiness and demo data | `scripts/demo-seed.ts` | U5, U9 |
 | U13 | Ask-first approval | `src/lib/checkout/approvals.ts`, `src/components/approval-card.tsx` | U12 |
 | U14 | Spend log | `src/app/log/page.tsx` | U12 |
 | U15 | Dispute evidence | `src/lib/disputes/`, `src/app/api/paypal/webhook/route.ts` | U12, U7 |
@@ -461,7 +463,7 @@ The saved documents do not state these. Check each on the live page or by a shor
   3. `.gitignore`: add `test-results/`, `playwright-report/` and the test server's build folder.
   4. Confirm `BRIEF.md` matches `docs/brief.md` and `drafts/` matches the `AGENTS.md` section, then remove them. Point `WIN_CONDITION.md` at `docs/brief.md`.
   5. `docs/brief.md`: add a dated note for the database and address changes. Leave the approved text.
-  6. `docs/demo-script.md`: "[40]" becomes 30 and "[20]" becomes 20 (R27).
+  6. `docs/demo-script.md`: "[40]" becomes 30 and "[20]" becomes 20 (R27). The thumbnail headline becomes "One hidden line told my AI to buy a $500 gift card. PayPal charged $0.", which stays true whether or not the agent falls for the line (R28).
   7. `README.md`: replace the starter text, which recommends a host the owner's rules forbid, with a short interim page.
   8. `npm run env:check` prints each required and optional name as set or missing, and never a value.
 - **Patterns to follow:** `src/app/page.test.tsx` for test style.
@@ -470,7 +472,7 @@ The saved documents do not state these. Check each on the live page or by a shor
   - `PAYPAL_CLIENT_SECRET` empty: it prints "missing" and the command exits non-zero.
   - Only optional names missing: exit 0, with each optional name listed as missing.
   - Property: for any generated value, the output never contains that value.
-- **Verification:** `./check` passes. No tracked file sits under `test-results/`. No document names Supabase as the database or the old address.
+- **Verification:** `./check` passes. No tracked file sits under `test-results/`. No document except the approved text of `docs/brief.md`, which now carries a dated note, names Supabase as the database or the old address.
 
 ### U2. Data layer, test mode and visitor ledgers
 
@@ -480,7 +482,7 @@ The saved documents do not state these. Check each on the live page or by a shor
 - **Files:** `src/lib/db/index.ts`, `src/lib/db/migrate.ts`, `db/migrations/0001_core.sql`, `src/lib/mode.ts`, `src/lib/ports.ts`, `src/lib/visitor/ledger.ts`, `src/app/api/health/route.ts`, `src/app/api/test/control/route.ts`, `playwright.config.ts`, `next.config.ts`, `package.json`, `src/lib/db/migrate.test.ts`, `src/lib/visitor/ledger.test.ts`, `src/lib/mode.test.ts`, `src/app/api/health/route.test.ts`.
 - **Approach:**
   1. A small database interface with query and transaction, bound to `pg` or PGlite (KTD3, KTD4).
-  2. Tables for ledgers, mandate versions, attempts and their items, payments, runs and steps, counters, AI spend, settings, disputes and their events.
+  2. Tables for ledgers, mandate versions, attempts and their items, payments, runs and steps, counters, AI spend and settings. U15 adds the dispute tables in its own migration, `db/migrations/0002_disputes.sql`, so a cut leaves no tables behind.
   3. The test-mode switch and port bindings (KTD5). The ports are PayPal, shopping agent, rule compiler and clock.
   4. Playwright's own server on port 3101 with its own build folder.
   5. The visitor cookie and ledger, created by the first action route (KTD10, KTD11).
@@ -604,6 +606,8 @@ The saved documents do not state these. Check each on the live page or by a shor
   4. The forced-cart reader matches catalog names in the line and takes the nearest whole number as quantity.
   5. The classifier follows KTD13.
   6. The store page has a "show hidden text" toggle.
+  7. First-screen order, so R1's one Try it button holds: the question, the hidden-line box, Try it as the only filled button, then "Try a normal restock" and Skip the AI as text links under it, then the result card in a fixed slot, then the streamed steps under the card as "What the AI did".
+  8. Ending b's card follows R2's card rule. When the rule allows the list it says "Your AI read your line at step 3 and ignored it. Your rule allowed $34, and PayPal charged $34." with the receipt link. When the rule blocks the list, for example over the weekly budget, it says "Your AI ignored your line, but your rule blocked this cart: <rule>. PayPal charged $0." Both offer Skip the AI as the next step.
 - **Patterns to follow:** `src/app/page.tsx` for layout classes, `e2e/home.spec.ts` for role-based locators.
 - **Test scenarios:**
   - Classifier: page opened and cart differs from the list gives "followed".
@@ -616,6 +620,7 @@ The saved documents do not state these. Check each on the live page or by a shor
   - `e2e/try-it.spec.ts#skip the AI sends the cart the line asked for`.
   - `e2e/try-it.spec.ts#a normal restock is charged and shows a receipt`.
   - `e2e/try-it.spec.ts#says when the AI ignored the line`.
+  - `e2e/try-it.spec.ts#says when the rule blocks the list`.
   - `e2e/try-it.spec.ts#says when a tricked cart still fits the rule`.
   - `e2e/try-it.spec.ts#says when nothing reached PayPal`.
   - `e2e/try-it.spec.ts#says when PayPal refused an allowed cart`.
@@ -630,7 +635,7 @@ The saved documents do not state these. Check each on the live page or by a shor
 
 - **Goal:** The owner saves PayPal once, and nobody else can.
 - **Requirements:** R18, R21.
-- **Dependencies:** U4, U5.
+- **Dependencies:** U2, U4. Build U7 first in the Wednesday 7:15 pm window, before U5 and U6, and have it on the pull request preview by 8:45 pm for the 9:00 pm sign-in.
 - **Files:** `src/app/owner/page.tsx`, `src/app/owner/paypal/page.tsx`, `src/app/api/owner/session/route.ts`, `src/lib/owner/session.ts`, `src/app/api/paypal/save/start/route.ts`, `src/app/api/paypal/save/return/route.ts`, `src/lib/owner/session.test.ts`, `e2e/owner.spec.ts`, `e2e/save-paypal.spec.ts`, `FEATURES.md`.
 - **Approach:**
   1. Sign-in per KTD11.
@@ -639,7 +644,6 @@ The saved documents do not state these. Check each on the live page or by a shor
   4. On the agent's own machine, the agent uses dev values it generated in a git-ignored env file. It never opens `.env.local`.
 - **Test scenarios:**
   - A wrong secret is refused with a generic message.
-  - Five wrong tries from one address in 10 minutes lock sign-in for 10 minutes.
   - The right secret sets an httpOnly, Secure, SameSite cookie and opens the owner pages.
   - `e2e/owner.spec.ts#refuses owner screens without the owner secret`.
   - `e2e/save-paypal.spec.ts#the owner saves PayPal once`, against the fake's approval page.
@@ -649,7 +653,7 @@ The saved documents do not state these. Check each on the live page or by a shor
   - `OWNER_SECRET` unset in a production build: owner pages say "not configured" and stay closed.
   - A request with another site's Origin is refused.
   - The token reference never appears in page HTML or logs.
-- **Verification:** After the 9:00 pm sign-in, Save PayPal completes on the preview and a normal restock charges the sandbox.
+- **Verification:** After the 9:00 pm sign-in, Save PayPal completes on the preview and the owner page shows "PayPal saved". U8's core gate checks that a normal restock charges.
 
 **Phase C: the agent, then the must-haves**
 
@@ -754,18 +758,15 @@ The saved documents do not state these. Check each on the live page or by a shor
 - **Goal:** The hosted page holds clean demo data and keeps working through December 15.
 - **Requirements:** R23.
 - **Dependencies:** U5, U9.
-- **Files:** `scripts/demo-seed.ts`, `scripts/demo-reset.ts`, `src/lib/demo/seed.ts`, `src/lib/demo/seed.test.ts`, `e2e/december.spec.ts`, `FEATURES.md`, `AGENTS.md`.
+- **Files:** `scripts/demo-seed.ts`, `src/lib/demo/seed.ts`, `src/lib/demo/seed.test.ts`, `e2e/december.spec.ts`, `FEATURES.md`, `AGENTS.md`.
 - **Approach:**
   1. Seed the demo parent's ledger, the signed demo mandate, the featured recorded run and two receipts for the submission's links.
-  2. Reset removes build-time visitor rows on the hosted schema. It refuses to run once the launch flag is set.
   3. Switch `allowance` to Render Starter, as the brief approved, and confirm the first page loads without a wait.
   4. Read the paid database plan's price for Open Question 2.
 - **Test scenarios:**
   - `e2e/december.spec.ts#still charges a normal restock on December 10`.
   - A charge from 8 days earlier no longer counts on December 10.
   - Seeding twice leaves one demo ledger and one mandate version.
-  - Reset keeps the saved PayPal reference, the demo mandate and the seeded receipts.
-  - Reset refuses after the launch flag is set.
   - Seeded receipt links open in a browser with no cookie.
 - **Verification:** The must-have milestone: U1 to U12 pass `./check` and work on the preview.
 
@@ -776,8 +777,8 @@ The saved documents do not state these. Check each on the live page or by a shor
 - **Goal:** An over-limit item waits for the parent, then charges or stops.
 - **Requirements:** R24.
 - **Dependencies:** U12.
-- **Files:** `src/lib/checkout/approvals.ts`, `src/app/api/approvals/route.ts`, `src/components/approval-card.tsx`, `src/lib/checkout/approvals.test.ts`, `src/lib/checkout/checkout.property.test.ts`, `e2e/ask-first.spec.ts`, `FEATURES.md`, `docs/demo-script.md`.
-- **Approach:** Replace the Stopped state with Pending and its three exits, as the attempt states diagram shows. An approval goes back through U5's checkout.
+- **Files:** `src/lib/checkout/approvals.ts`, `src/app/api/approvals/route.ts`, `src/components/approval-card.tsx`, `src/app/page.tsx`, `src/components/try-it/`, `src/lib/checkout/approvals.test.ts`, `src/lib/checkout/checkout.property.test.ts`, `e2e/ask-first.spec.ts`, `FEATURES.md`, `docs/demo-script.md`.
+- **Approach:** Replace the Stopped state with Pending and its three exits, as the attempt states diagram shows. An approval goes back through U5's checkout. The try-it page gains a "Try a restock with a $52 item" text link beside "Try a normal restock". It runs the normal restock with the catalog's $52 household item added to the agent's list, so the run reaches the approval card. Cut 3 removes the link.
 - **Test scenarios:**
   - `e2e/ask-first.spec.ts#an item over the limit waits for approval and then charges`.
   - `e2e/ask-first.spec.ts#declining charges $0`.
@@ -809,7 +810,7 @@ The saved documents do not state these. Check each on the live page or by a shor
 - **Goal:** A dispute on a captured charge gets Allowance's evidence, and the timeline shows it.
 - **Requirements:** R26.
 - **Dependencies:** U12, U7.
-- **Files:** `src/lib/disputes/handle.ts`, `src/lib/disputes/evidence.ts`, `src/lib/paypal/disputes.ts`, `src/app/api/paypal/webhook/route.ts`, `src/app/api/disputes/check/route.ts`, `src/app/disputes/[disputeId]/page.tsx`, `src/lib/disputes/handle.test.ts`, `e2e/disputes.spec.ts`, `FEATURES.md`, `docs/demo-script.md`.
+- **Files:** `db/migrations/0002_disputes.sql`, `src/lib/disputes/handle.ts`, `src/lib/disputes/evidence.ts`, `src/lib/paypal/disputes.ts`, `src/app/api/paypal/webhook/route.ts`, `src/app/api/disputes/check/route.ts`, `src/app/disputes/[disputeId]/page.tsx`, `src/lib/disputes/handle.test.ts`, `e2e/disputes.spec.ts`, `FEATURES.md`, `docs/demo-script.md`.
 - **Approach:**
   1. First, a 30-minute sandbox test on a real disputed charge: list it, read it, and try to send evidence (KTD14).
   2. If evidence can be sent only after an escalation, the video says so. If it cannot be sent, cut the unit.
@@ -839,10 +840,10 @@ The saved documents do not state these. Check each on the live page or by a shor
 - **Approach:**
   1. Wednesday 9:00 pm: draft the Devpost text and file the placeholder after approval. Recheck the deadline on the event's page.
   2. Thursday 7:30 am: lock the script with the measured numbers and the cut set.
-  3. Record the screens on the public deployment, burn in captions, and make the thumbnail from `docs/demo-script.md`.
+  3. Record the screens on the pull request's preview link during the 6:15 to 7:00 am walk, which is public and runs the real keys. Re-record on production only a screen that a `/go-live` fix changes. Show the production address in the captions and the closing screen. Burn in captions, and make the thumbnail from `docs/demo-script.md`.
   4. `README.md`: what it is, the link first, setup and run steps, "no login or test account needed", the AI tools and how each is used, and the limits last.
   5. Seven or more captioned screens, the blocked result first.
-  6. After each approval: upload the video, make the repository public, upgrade the database, submit.
+  6. After each approval: merge this pull request through `/go-live`, upload the video, turn off pull request previews (previews copy production secrets), make the repository public, upgrade the database, submit.
   7. Update the status line in `AGENTS.md` and the factory's project list.
 - **Test scenarios:** Test expectation: none -- documents and media. The reader tests in Verification stand in.
 - **Verification:** The two helper tests in Success Criteria pass. The owner has watched the video with sound. The Devpost page shows the entry as submitted before 11:00 am CT.
