@@ -3,8 +3,7 @@ import { TEST_SECRETS } from "../src/lib/mode";
 
 /** Resets the test server: a fresh database, the fake PayPal's script and counters, the clock and hooks. */
 export async function resetApp(request: APIRequestContext, extra: Record<string, unknown> = {}): Promise<void> {
-  const res = await request.post("/api/test/control", { data: { reset: true, ...extra } });
-  if (!res.ok()) throw new Error(`Test control failed: ${res.status()}`);
+  await steer(request, { reset: true, ...extra });
 }
 
 export async function steer(request: APIRequestContext, data: Record<string, unknown>): Promise<void> {

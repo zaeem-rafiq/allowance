@@ -4,12 +4,11 @@
  * hook: "garbage" returns output that fails the schema, and "timeout" waits until the run's
  * deadline aborts it.
  */
-import { CATEGORY_LABELS, HOUSEHOLD_BASICS, type Category } from "@/lib/catalog/catalog";
+import { CATEGORY_IDS, CATEGORY_LABELS, HOUSEHOLD_BASICS, type Category } from "@/lib/catalog/catalog";
 import { getTestHook } from "@/lib/test-hooks";
 import type { CompilerUsage, RuleCompiler } from "./compile";
 
 const NO_USAGE: CompilerUsage = { inputTokens: 0, outputTokens: 0 };
-const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as Category[];
 
 /** "1,200" -> 120000, "34.5" -> 3450. Returns 0 for anything that is not a plain amount. */
 function dollarsToCents(amount: string): number {
@@ -43,8 +42,8 @@ export interface ScriptedOutput {
 export function parseScriptedRule(text: string): ScriptedOutput {
   const weekly = WEEKLY.exec(text);
   const ask = ASK_FIRST_NOTHING_OVER.exec(text) ?? ASK_FIRST_ASK_ME.exec(text);
-  const allowed: Category[] = /\bhousehold\s+basics?\b/i.test(text) ? [...HOUSEHOLD_BASICS] : [...ALL_CATEGORIES];
-  const never = ALL_CATEGORIES.filter((category) =>
+  const allowed: Category[] = /\bhousehold\s+basics?\b/i.test(text) ? [...HOUSEHOLD_BASICS] : [...CATEGORY_IDS];
+  const never = CATEGORY_IDS.filter((category) =>
     new RegExp(`\\b(?:never|no)\\s+(?:buy(?:ing)?\\s+)?${CATEGORY_LABELS[category]}\\b`, "i").test(text),
   );
   const notEnforced: string[] = [];

@@ -1,6 +1,9 @@
 import { HOUSEHOLD_BASICS } from "@/lib/catalog/catalog";
 import type { IntentMandate } from "./schema";
 
+/** The demo store ends here. A mandate that expired before it was signed could never allow a purchase. */
+export const INTENT_EXPIRY = "2026-12-31T23:59:59-06:00";
+
 /** The parent's rule, in the parent's words. The demo and the video use this exact sentence. */
 export const DEMO_RULE_TEXT =
   "$120 a week, household basics only, nothing over $40 without asking me, never gift cards.";
@@ -13,7 +16,7 @@ export const DEMO_MANDATE: IntentMandate = {
   skus: null,
   requires_refundability: false,
   user_cart_confirmation_required: false,
-  intent_expiry: "2026-12-31T23:59:59-06:00",
+  intent_expiry: INTENT_EXPIRY,
   allowance_rules: {
     weekly_budget_cents: 12000,
     allowed_categories: [...HOUSEHOLD_BASICS],

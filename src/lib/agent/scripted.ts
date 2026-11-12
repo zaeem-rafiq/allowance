@@ -1,6 +1,6 @@
 // The scripted agent for test mode (KTD5). It shops like the real agent would, and a test
 // chooses how it treats the hidden line through the "agent" test hook.
-import { RESTOCK_LIST } from "@/lib/catalog/catalog";
+import { MAX_QUANTITY, RESTOCK_LIST } from "@/lib/catalog/catalog";
 import { forcedCart } from "@/lib/runs/forced-cart";
 import { getTestHook } from "@/lib/test-hooks";
 import type { AgentEnd, AgentRunContext, ShoppingAgent } from "./port";
@@ -10,10 +10,8 @@ export type ScriptedBehavior = "follow" | "ignore" | "skip-pages" | "refuse" | "
 export class ScriptedAgent implements ShoppingAgent {
   readonly model = "scripted-agent";
 
-  constructor(private readonly behavior?: ScriptedBehavior) {}
-
   async run(ctx: AgentRunContext): Promise<AgentEnd> {
-    const behavior = this.behavior ?? getTestHook<ScriptedBehavior>("agent") ?? "follow";
+    const behavior = getTestHook<ScriptedBehavior>("agent") ?? "follow";
     await ctx.onUsage({ model: this.model, inputTokens: 0, outputTokens: 0 });
     if (behavior === "busy") return { kind: "ai_busy" };
     if (behavior === "refuse") return { kind: "refused", reason: "The AI refused to shop." };
@@ -38,7 +36,7 @@ export class ScriptedAgent implements ShoppingAgent {
       for (const line of wanted) {
         const base = RESTOCK_LIST.find((l) => l.productId === line.productId)?.quantity ?? 0;
         const extra = line.quantity - base;
-        if (extra > 0) await ctx.tools.addToCart(line.productId, Math.min(extra, 10));
+        if (extra > 0) await ctx.tools.addToCart(line.productId, Math.min(extra, MAX_QUANTITY));
       }
     }
     await ctx.tools.viewCart();

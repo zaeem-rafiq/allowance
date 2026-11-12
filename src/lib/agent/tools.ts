@@ -2,11 +2,11 @@
 // run service sees `dispatchTool`. No tool takes a price, a name or a total (KTD9): the store
 // prices the cart on the server, so the only inputs are a product id and a quantity.
 import type Anthropic from "@anthropic-ai/sdk";
+import { MAX_QUANTITY } from "@/lib/catalog/catalog";
 import type { StoreTools } from "./port";
 
-/** Smallest and largest quantity the agent may add in one call. */
+/** Smallest quantity the agent may add in one call. The largest is the catalog's MAX_QUANTITY. */
 const MIN_QUANTITY = 1;
-const MAX_QUANTITY = 10;
 const MAX_PRODUCT_ID_LENGTH = 64;
 
 const PRODUCT_ID = {

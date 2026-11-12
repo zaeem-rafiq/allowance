@@ -2,11 +2,17 @@
 // the full check again and works once; decline and expiry charge $0 and release the amount.
 import { type Verdict, checkCart } from "@/lib/checker/check-cart";
 import type { Db } from "@/lib/db";
-import { verifySignedMandate } from "@/lib/mandate/sign";
 import type { PayPalPort } from "@/lib/paypal/port";
 import { SAVED_PAYPAL_KEY, getSetting } from "@/lib/settings";
-import { currentMandate } from "@/lib/visitor/ledger";
-import { APPROVAL_TTL_MS, type AttemptRow, CANNOT_CHECK, applyChargeResult, ledgerSpend } from "./checkout";
+import {
+  APPROVAL_TTL_MS,
+  type AttemptRow,
+  CANNOT_CHECK,
+  RESTOCK_DESCRIPTION,
+  chargeAttempt,
+  ledgerSpend,
+  loadVerifiedMandate,
+} from "./checkout";
 
 export type Decision = "approve" | "decline";
 
@@ -52,10 +58,7 @@ export async function decideApproval(
       }
 
       // Approve: the full check runs again, without this request's own held amount.
-      const mv = await currentMandate(tx, input.ledgerId);
-      if (!mv) throw new Error("no mandate");
-      const signedOk = verifySignedMandate({ mandate: mv.mandate, hash: mv.hash, signature: mv.signature, publicKey: mv.public_key });
-      if (!signedOk || mv.public_key !== input.expectedPublicKey) throw new Error("mandate signature does not verify");
+      const mv = await loadVerifiedMandate(tx, input.ledgerId, input.expectedPublicKey);
       const { spentCents, pendingCents } = await ledgerSpend(tx, input.ledgerId, now);
       const previous = attempt.verdict as Extract<Verdict, { decision: "needs_approval" }>;
       const cart = previous.lines.map((l) => ({ productId: l.productId, quantity: l.quantity }));
@@ -108,14 +111,7 @@ export async function decideApproval(
   if (!result) return { attempt: null, error: "not_found", message: "This request was not found." };
   if (toCharge) {
     const { attempt, vaultId } = toCharge as { attempt: AttemptRow; vaultId: string };
-    const verdict = attempt.verdict as Extract<Verdict, { decision: "allow" }>;
-    const charge = await paypal.charge({
-      vaultId,
-      requestId: attempt.id,
-      items: verdict.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitCents: l.unitPriceCents })),
-      description: "Allowance demo store restock, approved by the parent",
-    });
-    result = await applyChargeResult(db, attempt, charge, now);
+    result = await chargeAttempt(db, paypal, attempt, vaultId, `${RESTOCK_DESCRIPTION}, approved by the parent`, now);
   }
   return { attempt: result, error: null, message: result.message ?? "" };
 }

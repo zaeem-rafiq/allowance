@@ -5,7 +5,9 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { getSecret } from "@/lib/secrets";
 
 export const OWNER_COOKIE = "allowance_owner";
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** How long an owner sign-in lasts: seven days. */
+export const OWNER_SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const MAX_AGE_MS = OWNER_SESSION_MAX_AGE_SECONDS * 1000;
 
 function digest(value: string): Buffer {
   return createHash("sha256").update(value).digest();

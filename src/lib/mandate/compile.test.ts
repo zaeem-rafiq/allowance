@@ -11,7 +11,6 @@ import { resetTestHooks, setTestHooks } from "@/lib/test-hooks";
 import { DEMO_LEDGER_ID } from "@/lib/visitor/ledger";
 import {
   CAP_NOTE,
-  INTENT_EXPIRY,
   MAX_RULE_TEXT,
   type CompiledRule,
   type RuleCompiler,
@@ -22,7 +21,7 @@ import {
   runCompile,
   validateCompiled,
 } from "./compile";
-import { DEMO_MANDATE, DEMO_RULE_TEXT, VISITOR_MAX_WEEKLY_BUDGET_CENTS } from "./demo-mandate";
+import { DEMO_MANDATE, DEMO_RULE_TEXT, INTENT_EXPIRY, VISITOR_MAX_WEEKLY_BUDGET_CENTS } from "./demo-mandate";
 import { getRuleCompiler } from "./index";
 import { ScriptedCompiler, parseScriptedRule } from "./scripted-compiler";
 import {

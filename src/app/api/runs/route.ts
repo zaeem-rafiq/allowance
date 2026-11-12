@@ -8,7 +8,8 @@ import { forbidden, isSameOrigin, shouldUseSecureCookies } from "@/lib/http";
 import { deriveSigningKey } from "@/lib/mandate/sign";
 import { getPayPal, now } from "@/lib/ports";
 import { getSecret } from "@/lib/secrets";
-import { type RunKind, MAX_LINE_CHARS, createRun, executeRun } from "@/lib/runs/run";
+import { MAX_LINE_CHARS } from "@/lib/runs/forced-cart";
+import { type RunKind, createRun, executeRun } from "@/lib/runs/run";
 import { resolveVisitor } from "@/lib/visitor/request";
 
 const KINDS: RunKind[] = ["agent", "restock", "ask_first", "skip"];

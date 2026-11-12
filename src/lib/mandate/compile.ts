@@ -9,10 +9,10 @@
  * No server-only imports: the card and the rule writer import the types and limits from here.
  */
 import { z } from "zod";
-import { CATEGORY_LABELS, type Category } from "@/lib/catalog/catalog";
+import { CATEGORY_IDS } from "@/lib/catalog/catalog";
 import { formatUsd } from "@/lib/money/cents";
-import { VISITOR_MAX_WEEKLY_BUDGET_CENTS } from "./demo-mandate";
-import { type IntentMandate, type MandateRules, parseMandate } from "./schema";
+import { INTENT_EXPIRY, VISITOR_MAX_WEEKLY_BUDGET_CENTS } from "./demo-mandate";
+import { type IntentMandate, type MandateRules, categorySchema, parseMandate } from "./schema";
 
 /**
  * The longest rule a parent can write. The mandate stores the parent's words whole, and the
@@ -21,17 +21,12 @@ import { type IntentMandate, type MandateRules, parseMandate } from "./schema";
 export const MAX_RULE_TEXT = 280;
 export const COMPILE_TIMEOUT_MS = 20_000;
 export const MIN_WEEKLY_BUDGET_CENTS = 100;
-/** The demo store ends here. A mandate that expired before it was signed could never allow a purchase. */
-export const INTENT_EXPIRY = "2026-12-31T23:59:59-06:00";
 export const CAP_NOTE = `Capped at ${formatUsd(VISITOR_MAX_WEEKLY_BUDGET_CENTS)} for this public demo.`;
 
 const MAX_CLAUSE_CHARS = 280;
 const MAX_CLAUSES = 10;
 /** An ask-first limit above $100,000 is a typo or an attack, not a rule. */
 const MAX_ASK_FIRST_CENTS = 10_000_000;
-
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as [Category, ...Category[]];
-const categorySchema = z.enum(CATEGORIES);
 
 /** What a compiler returns, and what a browser posts back at signing. */
 export interface CompiledRule {
@@ -57,8 +52,8 @@ export interface RuleCompiler {
 
 const rulesSchema = z.strictObject({
   weekly_budget_cents: z.number().int(),
-  allowed_categories: z.array(categorySchema).min(1).max(CATEGORIES.length),
-  never_categories: z.array(categorySchema).max(CATEGORIES.length),
+  allowed_categories: z.array(categorySchema).min(1).max(CATEGORY_IDS.length),
+  never_categories: z.array(categorySchema).max(CATEGORY_IDS.length),
   ask_first_unit_price_cents: z.number().int().nullable(),
 });
 

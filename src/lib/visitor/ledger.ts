@@ -25,6 +25,18 @@ export function hashVisitorKey(value: string): string {
   return createHash("sha256").update(`visitor:${value}`).digest("hex");
 }
 
+/** The shape of every cookie this server issues (32 random bytes as base64url). Any other value has no ledger. */
+export const VISITOR_COOKIE_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+
+/** The ID of the ledger that owns this visitor cookie, or null. This never creates a ledger. */
+export async function findVisitorLedgerId(q: Queryable, cookieValue: string | undefined): Promise<string | null> {
+  if (!cookieValue || !VISITOR_COOKIE_SHAPE.test(cookieValue)) return null;
+  const rows = await q.query<{ id: string }>("SELECT id FROM ledgers WHERE visitor_key_hash = $1", [
+    hashVisitorKey(cookieValue),
+  ]);
+  return rows[0]?.id ?? null;
+}
+
 export async function insertMandateVersion(
   q: Queryable,
   ledgerId: string,
@@ -96,15 +108,11 @@ export async function getOrCreateVisitorLedger(
   signingSecret: string,
   now: Date,
 ): Promise<VisitorLedger> {
-  if (cookieValue && /^[A-Za-z0-9_-]{43}$/.test(cookieValue)) {
-    const rows = await q.query<{ id: string }>("SELECT id FROM ledgers WHERE visitor_key_hash = $1", [
-      hashVisitorKey(cookieValue),
-    ]);
-    if (rows[0]) {
-      await q.query("SELECT id FROM ledgers WHERE id = $1 FOR UPDATE", [rows[0].id]);
-      await resignDemoCopyIfKeyChanged(q, rows[0].id, signingSecret, now);
-      return { ledgerId: rows[0].id, newCookie: null };
-    }
+  const existingId = await findVisitorLedgerId(q, cookieValue);
+  if (existingId) {
+    await q.query("SELECT id FROM ledgers WHERE id = $1 FOR UPDATE", [existingId]);
+    await resignDemoCopyIfKeyChanged(q, existingId, signingSecret, now);
+    return { ledgerId: existingId, newCookie: null };
   }
   await ensureDemoLedger(q, signingSecret, now);
   const demo = await currentMandate(q, DEMO_LEDGER_ID);

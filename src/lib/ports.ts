@@ -8,7 +8,6 @@ import type { PayPalPort } from "@/lib/paypal/port";
 interface Bound {
   paypal?: PayPalPort;
   fakePayPal?: FakePayPal;
-  clockOffsetMs?: number;
   fixedNow?: number | null;
 }
 

@@ -2,6 +2,7 @@
 // run the tools the model asks for, send the results back, stop when the model stops. Nothing
 // here limits what the model may ask for. The parent's rule is enforced by code at checkout.
 import Anthropic from "@anthropic-ai/sdk";
+import { inputTokensFrom } from "@/lib/limits/ai-budget";
 import { AGENT_INSTRUCTIONS, firstUserMessage } from "./instructions";
 import { RunStopped } from "./port";
 import type { AgentEnd, AgentRunContext, ShoppingAgent } from "./port";
@@ -104,10 +105,7 @@ export class HaikuAgent implements ShoppingAgent {
 
       await ctx.onUsage({
         model: this.model,
-        inputTokens:
-          message.usage.input_tokens +
-          (message.usage.cache_creation_input_tokens ?? 0) +
-          (message.usage.cache_read_input_tokens ?? 0),
+        inputTokens: inputTokensFrom(message.usage),
         outputTokens: message.usage.output_tokens,
       });
 

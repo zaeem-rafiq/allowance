@@ -8,7 +8,7 @@ import { deriveSigningKey } from "@/lib/mandate/sign";
 import { getPayPal, now } from "@/lib/ports";
 import { decisionCard } from "@/lib/runs/card";
 import { getSecret } from "@/lib/secrets";
-import { VISITOR_COOKIE, hashVisitorKey } from "@/lib/visitor/ledger";
+import { VISITOR_COOKIE, findVisitorLedgerId } from "@/lib/visitor/ledger";
 import { readCookie } from "@/lib/visitor/request";
 
 export async function POST(request: Request) {
@@ -22,12 +22,12 @@ export async function POST(request: Request) {
   if (!cookie || !secret) return Response.json({ error: "This request was not found." }, { status: 404 });
   try {
     const db = await getDb();
-    const ledger = await db.query<{ id: string }>("SELECT id FROM ledgers WHERE visitor_key_hash = $1", [hashVisitorKey(cookie)]);
-    if (!ledger[0]) return Response.json({ error: "This request was not found." }, { status: 404 });
+    const ledgerId = await findVisitorLedgerId(db, cookie);
+    if (!ledgerId) return Response.json({ error: "This request was not found." }, { status: 404 });
     const result = await decideApproval(
       db,
       getPayPal(),
-      { attemptId, ledgerId: ledger[0].id, decision, expectedPublicKey: deriveSigningKey(secret).publicKeyBase64 },
+      { attemptId, ledgerId, decision, expectedPublicKey: deriveSigningKey(secret).publicKeyBase64 },
       now(),
     );
     if (result.error === "not_found") return Response.json({ error: result.message }, { status: 404 });

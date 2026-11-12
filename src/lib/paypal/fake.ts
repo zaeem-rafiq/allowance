@@ -2,7 +2,7 @@
 // Its "approval page" is a test-only route that sends the browser straight back.
 import type { ChargeResult, FinishSaveResult, PayPalPort, StartSaveResult } from "./port";
 
-export type ScriptedCharge = "captured" | "refused" | "unknown" | "timeout-then-captured";
+export type ScriptedCharge = "captured" | "refused" | "unknown";
 
 export class FakePayPal implements PayPalPort {
   calls = { startSave: 0, finishSave: 0, charge: 0, lookupOrder: 0 };

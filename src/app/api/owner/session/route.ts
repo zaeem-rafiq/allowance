@@ -2,7 +2,13 @@
 import { NextResponse } from "next/server";
 import { forbidden, isSameOrigin, siteOrigin, shouldUseSecureCookies } from "@/lib/http";
 import { now } from "@/lib/ports";
-import { OWNER_COOKIE, issueSessionCookie, ownerConfigured, secretMatches } from "@/lib/owner/session";
+import {
+  OWNER_COOKIE,
+  OWNER_SESSION_MAX_AGE_SECONDS,
+  issueSessionCookie,
+  ownerConfigured,
+  secretMatches,
+} from "@/lib/owner/session";
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return forbidden();
@@ -18,7 +24,7 @@ export async function POST(request: Request) {
     secure: shouldUseSecureCookies(request),
     sameSite: "lax",
     path: "/",
-    maxAge: 7 * 24 * 60 * 60,
+    maxAge: OWNER_SESSION_MAX_AGE_SECONDS,
   });
   return res;
 }

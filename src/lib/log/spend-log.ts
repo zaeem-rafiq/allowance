@@ -1,7 +1,8 @@
 // The spend log (U14): every checkout attempt in ONE visitor's own ledger, with only the
 // fields the table shows. The query never creates a ledger and never reads another visitor's rows.
 import type { Queryable } from "@/lib/db";
-import { hashVisitorKey } from "@/lib/visitor/ledger";
+import { RECEIPT_ID_SHAPE } from "@/lib/checkout/checkout";
+import { VISITOR_COOKIE_SHAPE, hashVisitorKey } from "@/lib/visitor/ledger";
 
 export const LOG_LIMIT = 200;
 export const NO_VALUE = "—";
@@ -55,9 +56,6 @@ const RESULT_LABELS: Record<string, string> = {
   unknown: "Checking with PayPal",
 };
 
-const RECEIPT_ID = /^[A-Za-z0-9_-]{22}$/;
-/** The same shape the visitor cookie is issued with. Anything else has no ledger. */
-const VISITOR_COOKIE_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 /** Integer cents to "$34.00". Whole-number maths only. */
 function dollars(cents: number): string {
@@ -80,7 +78,7 @@ export function toLogRow(attempt: LogAttempt): LogRow {
     amount: dollars(amountCents),
     amountCents,
     paypalOrder: typeof orderId === "string" && orderId !== "" ? orderId : NO_VALUE,
-    receiptId: attempt.receipt_id && RECEIPT_ID.test(attempt.receipt_id) ? attempt.receipt_id : null,
+    receiptId: attempt.receipt_id && RECEIPT_ID_SHAPE.test(attempt.receipt_id) ? attempt.receipt_id : null,
   };
 }
 

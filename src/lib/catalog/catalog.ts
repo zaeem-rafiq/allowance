@@ -27,6 +27,9 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   snacks: "snacks",
 };
 
+/** Every category ID, in the order of CATEGORY_LABELS. */
+export const CATEGORY_IDS = Object.keys(CATEGORY_LABELS) as [Category, ...Category[]];
+
 export const HOUSEHOLD_BASICS: Category[] = ["cleaning", "paper_goods", "laundry", "kitchen"];
 
 export interface Product {
@@ -160,7 +163,8 @@ export type PriceCartResult =
   | { ok: false; reason: string };
 
 const QUANTITY_REASON = "Quantity must be a whole number from 1 to 10.";
-const MAX_QUANTITY = 10;
+/** The most of one product a cart line may hold. */
+export const MAX_QUANTITY = 10;
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -1,20 +1,10 @@
 // PayPal sandbox adapter (KTD2, R19). Direct REST calls. The sandbox address is fixed: there
 // is no live-payments mode, and building the client for any other address fails.
+import { centsToPayPal, payPalToCents } from "@/lib/money/cents";
 import type { ChargeItem, ChargeResult, FinishSaveResult, PayPalPort, StartSaveResult } from "./port";
 
 export const SANDBOX_API = "https://api-m.sandbox.paypal.com";
 const TIMEOUT_MS = 15_000;
-
-function centsToValue(cents: number): string {
-  if (!Number.isInteger(cents) || cents < 0) throw new Error("Amount must be whole cents");
-  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
-}
-
-function valueToCents(value: string): number {
-  const m = /^(\d+)\.(\d{2})$/.exec(value);
-  if (!m) throw new Error("Unexpected PayPal amount");
-  return Number(m[1]) * 100 + Number(m[2]);
-}
 
 type FetchLike = typeof fetch;
 
@@ -170,12 +160,12 @@ export class PayPalSandboxClient implements PayPalPort {
         status: "captured",
         orderId,
         captureId: String(cap.id),
-        amountCents: valueToCents(amount.value),
+        amountCents: payPalToCents(amount.value),
         at: String(cap.create_time ?? new Date(this.now()).toISOString()),
       };
     }
     if (cap && (cap.status === "PENDING" || json.status === "PAYER_ACTION_REQUIRED")) {
-      return { status: "refused", reason: String(json.status === "PAYER_ACTION_REQUIRED" ? "PAYER_ACTION_REQUIRED" : "CAPTURE_PENDING"), orderId };
+      return { status: "refused", reason: json.status === "PAYER_ACTION_REQUIRED" ? "PAYER_ACTION_REQUIRED" : "CAPTURE_PENDING", orderId };
     }
     if (cap && (cap.status === "DECLINED" || cap.status === "FAILED")) {
       return { status: "refused", reason: `CAPTURE_${cap.status}`, orderId };
@@ -193,13 +183,13 @@ export class PayPalSandboxClient implements PayPalPort {
           description: opts.description.slice(0, 127),
           amount: {
             currency_code: "USD",
-            value: centsToValue(totalCents),
-            breakdown: { item_total: { currency_code: "USD", value: centsToValue(totalCents) } },
+            value: centsToPayPal(totalCents),
+            breakdown: { item_total: { currency_code: "USD", value: centsToPayPal(totalCents) } },
           },
           items: opts.items.map((i) => ({
             name: i.name.slice(0, 127),
             quantity: String(i.quantity),
-            unit_amount: { currency_code: "USD", value: centsToValue(i.unitCents) },
+            unit_amount: { currency_code: "USD", value: centsToPayPal(i.unitCents) },
           })),
         },
       ],
@@ -245,5 +235,3 @@ export class PayPalSandboxClient implements PayPalPort {
     }
   }
 }
-
-export { centsToValue, valueToCents };

@@ -15,7 +15,6 @@ export interface Queryable {
 export interface Db extends Queryable {
   transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
   close(): Promise<void>;
-  kind: "pg" | "pglite";
 }
 
 export class DatabaseUnavailableError extends Error {
@@ -34,7 +33,6 @@ export async function createPg(url: string): Promise<Db> {
     // An idle client lost its connection. The next query reconnects.
   });
   const db: Db = {
-    kind: "pg",
     async query<T>(sql: string, params: unknown[] = []) {
       const res = await pool.query(sql, params);
       return res.rows as T[];
@@ -76,7 +74,6 @@ export async function createPglite(dataDir?: string): Promise<Db> {
   const pg = dataDir ? new PGlite(dataDir) : new PGlite();
   await pg.waitReady;
   const db: Db = {
-    kind: "pglite",
     async query<T>(sql: string, params: unknown[] = []) {
       const res = await pg.query(sql, params);
       return res.rows as T[];

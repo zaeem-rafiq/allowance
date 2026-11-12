@@ -24,6 +24,12 @@ export type AttemptState =
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 export type AttemptSource = "agent" | "skip" | "restock" | "approval";
 
+/** The shape of every receipt ID applyChargeResult issues (16 random bytes as base64url). */
+export const RECEIPT_ID_SHAPE = /^[A-Za-z0-9_-]{22}$/;
+
+/** The description PayPal shows for a restock charge. */
+export const RESTOCK_DESCRIPTION = "Allowance demo store restock";
+
 export const CANNOT_CHECK = "Allowance could not check your rule, so nothing was charged.";
 
 export interface PayPalCopy {
@@ -76,6 +82,20 @@ function refusedMessage(reason: string): string {
     return "PayPal did not accept the saved account, so nothing was charged.";
   }
   return "Your rule allowed this. PayPal's sandbox refused it, so nothing was charged.";
+}
+
+/** The ledger's current mandate, only if it is signed and signed by this server's own key. */
+export async function loadVerifiedMandate(q: Queryable, ledgerId: string, expectedPublicKey: string) {
+  const mv = await currentMandate(q, ledgerId);
+  if (!mv) throw new Error("no mandate");
+  const signedOk = verifySignedMandate({
+    mandate: mv.mandate,
+    hash: mv.hash,
+    signature: mv.signature,
+    publicKey: mv.public_key,
+  });
+  if (!signedOk || mv.public_key !== expectedPublicKey) throw new Error("mandate signature does not verify");
+  return mv;
 }
 
 async function loadAttempt(q: Queryable, id: string): Promise<AttemptRow | null> {
@@ -136,15 +156,7 @@ export async function checkout(db: Db, paypal: PayPalPort, input: CheckoutInput,
         const prior = await tx.query<{ id: string }>("SELECT id FROM attempts WHERE run_id = $1", [input.runId]);
         if (prior[0]) return { kind: "already" as const };
       }
-      const mv = await currentMandate(tx, input.ledgerId);
-      if (!mv) throw new Error("no mandate");
-      const signedOk = verifySignedMandate({
-        mandate: mv.mandate,
-        hash: mv.hash,
-        signature: mv.signature,
-        publicKey: mv.public_key,
-      });
-      if (!signedOk || mv.public_key !== input.expectedPublicKey) throw new Error("mandate signature does not verify");
+      const mv = await loadVerifiedMandate(tx, input.ledgerId, input.expectedPublicKey);
       const { spentCents, pendingCents } = await ledgerSpend(tx, input.ledgerId, now);
       const verdict = checkCart({ mandate: mv.mandate, cart: input.cart, spentCents, pendingCents, now });
       const saved = await getSetting<SavedPayPal>(tx, SAVED_PAYPAL_KEY);
@@ -205,15 +217,27 @@ export async function checkout(db: Db, paypal: PayPalPort, input: CheckoutInput,
   if (attempt.state !== "reserved" || !vaultId) return { attempt, error: null, message: attempt.message ?? "" };
 
   // PayPal is called only after the reservation is committed.
+  const finalAttempt = await chargeAttempt(db, paypal, attempt, vaultId, RESTOCK_DESCRIPTION, now);
+  return { attempt: finalAttempt, error: null, message: finalAttempt.message ?? "" };
+}
+
+/** Charges a reserved attempt's cart with its own attempt ID as the request ID, then records the result. */
+export async function chargeAttempt(
+  db: Queryable,
+  paypal: PayPalPort,
+  attempt: AttemptRow,
+  vaultId: string,
+  description: string,
+  now: Date,
+): Promise<AttemptRow> {
   const verdict = attempt.verdict as Extract<Verdict, { decision: "allow" }>;
   const result = await paypal.charge({
     vaultId,
     requestId: attempt.id,
     items: verdict.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitCents: l.unitPriceCents })),
-    description: "Allowance demo store restock",
+    description,
   });
-  const finalAttempt = await applyChargeResult(db, attempt, result, now);
-  return { attempt: finalAttempt, error: null, message: finalAttempt.message ?? "" };
+  return applyChargeResult(db, attempt, result, now);
 }
 
 export async function applyChargeResult(db: Queryable, attempt: AttemptRow, result: ChargeResult, now: Date): Promise<AttemptRow> {
@@ -254,18 +278,11 @@ export async function settleIfUnknown(db: Db, paypal: PayPalPort, attempt: Attem
   if (attempt.state !== "unknown" && attempt.state !== "reserved") return attempt;
   const saved = await getSetting<SavedPayPal>(db, SAVED_PAYPAL_KEY);
   if (!saved) return attempt;
-  const verdict = attempt.verdict as Extract<Verdict, { decision: "allow" }>;
-  const result = await paypal.charge({
-    vaultId: saved.paymentTokenId,
-    requestId: attempt.id,
-    items: verdict.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitCents: l.unitPriceCents })),
-    description: "Allowance demo store restock",
-  });
-  return applyChargeResult(db, attempt, result, now);
+  return chargeAttempt(db, paypal, attempt, saved.paymentTokenId, RESTOCK_DESCRIPTION, now);
 }
 
 export async function findAttemptByReceipt(q: Queryable, receiptId: string): Promise<AttemptRow | null> {
-  if (!/^[A-Za-z0-9_-]{22}$/.test(receiptId)) return null;
+  if (!RECEIPT_ID_SHAPE.test(receiptId)) return null;
   const rows = await q.query<AttemptRow>("SELECT * FROM attempts WHERE receipt_id = $1", [receiptId]);
   return rows[0] ?? null;
 }

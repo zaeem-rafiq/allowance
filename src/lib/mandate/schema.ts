@@ -5,7 +5,7 @@
  * field. Our own rules live under `allowance_rules`.
  */
 import { z } from "zod";
-import { CATEGORY_LABELS, HOUSEHOLD_BASICS, type Category } from "@/lib/catalog/catalog";
+import { CATEGORY_IDS, CATEGORY_LABELS, HOUSEHOLD_BASICS, type Category } from "@/lib/catalog/catalog";
 import { formatUsd } from "@/lib/money/cents";
 
 export interface MandateRules {
@@ -33,8 +33,7 @@ export interface IntentMandate {
   not_enforced: string[];
 }
 
-const CATEGORY_VALUES = Object.keys(CATEGORY_LABELS) as [Category, ...Category[]];
-const categorySchema = z.enum(CATEGORY_VALUES);
+export const categorySchema = z.enum(CATEGORY_IDS);
 
 const MAX_TEXT = 280;
 const text = z.string().max(MAX_TEXT);
@@ -42,8 +41,8 @@ const cents = z.number().int().nonnegative();
 
 const mandateRulesSchema = z.strictObject({
   weekly_budget_cents: cents.positive(),
-  allowed_categories: z.array(categorySchema).min(1).max(CATEGORY_VALUES.length),
-  never_categories: z.array(categorySchema).max(CATEGORY_VALUES.length),
+  allowed_categories: z.array(categorySchema).min(1).max(CATEGORY_IDS.length),
+  never_categories: z.array(categorySchema).max(CATEGORY_IDS.length),
   ask_first_unit_price_cents: cents.nullable(),
 });
 

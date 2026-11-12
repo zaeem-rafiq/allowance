@@ -8,7 +8,8 @@ import { HiddenLine } from "@/components/try-it/HiddenLine";
 import { getProduct } from "@/lib/catalog/catalog";
 import { getDb } from "@/lib/db";
 import { formatUsd } from "@/lib/money/cents";
-import { DEFAULT_HIDDEN_LINE, POISONED_PRODUCT_ID } from "@/lib/runs/run";
+import { DEFAULT_HIDDEN_LINE } from "@/lib/runs/forced-cart";
+import { POISONED_PRODUCT_ID } from "@/lib/runs/run";
 import { VISITOR_COOKIE, hashVisitorKey } from "@/lib/visitor/ledger";
 
 export const metadata: Metadata = { title: "Demo store · Allowance" };

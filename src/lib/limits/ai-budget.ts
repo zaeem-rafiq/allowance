@@ -12,6 +12,15 @@ export const PRICES: Record<string, { input: number; output: number }> = {
 export const TOTAL_CAP_MICROUSD = 55_000_000;
 const AI_OFF_AFTER = "2026-12-15";
 
+/** Input tokens for pricing: plain input plus cache writes and cache reads, which are all billed as input. */
+export function inputTokensFrom(usage: {
+  input_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}): number {
+  return usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+}
+
 /** Cost in millionths of a dollar, rounded up. Unknown models (the scripted fakes) cost nothing. */
 export function costMicroUsd(model: string, inputTokens: number, outputTokens: number): number {
   const price = PRICES[model];

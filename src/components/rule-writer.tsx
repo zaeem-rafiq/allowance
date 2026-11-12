@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState } from "react";
 import { type CardClause, MandateCard, type SignedDetails } from "@/components/mandate-card";
+import { useHydrated } from "@/components/use-hydrated";
 import { type CompiledRule, MAX_RULE_TEXT } from "@/lib/mandate/compile";
 import { DEMO_RULE_TEXT, VISITOR_MAX_WEEKLY_BUDGET_CENTS } from "@/lib/mandate/demo-mandate";
 import type { IntentMandate } from "@/lib/mandate/schema";
@@ -54,13 +55,7 @@ export function RuleWriter({
   const [signedNow, setSignedNow] = useState<{ target: RuleTarget; view: SignedView; notes: string[] } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const inFlight = useRef(false);
-  // The buttons stay disabled until the page is interactive, so an early click cannot submit
-  // the form as a plain page load.
-  const hydrated = useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
+  const hydrated = useHydrated();
 
   const trimmed = text.trim();
   const tooLong = trimmed.length > MAX_RULE_TEXT;

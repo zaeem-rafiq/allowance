@@ -15,7 +15,7 @@ import {
   VISITOR_COOKIE,
   currentMandate,
   ensureDemoLedger,
-  hashVisitorKey,
+  findVisitorLedgerId,
 } from "@/lib/visitor/ledger";
 
 export const metadata: Metadata = { title: "Write a rule · Allowance" };
@@ -71,10 +71,8 @@ async function loadCurrent(): Promise<{ owner: boolean; mine: SignedView; demo: 
     // yet starts from a copy of the demo parent's rule, as version 1.
     const cookie = (await cookies()).get(VISITOR_COOKIE)?.value;
     let mineRow: MandateVersionRow | null = null;
-    if (cookie && /^[A-Za-z0-9_-]{43}$/.test(cookie)) {
-      const ledger = await db.query<{ id: string }>("SELECT id FROM ledgers WHERE visitor_key_hash = $1", [hashVisitorKey(cookie)]);
-      if (ledger[0]) mineRow = await currentMandate(db, ledger[0].id);
-    }
+    const ledgerId = await findVisitorLedgerId(db, cookie);
+    if (ledgerId) mineRow = await currentMandate(db, ledgerId);
     return { owner, mine: toView(mineRow ?? { ...demoRow, version: 1 }), demo: owner ? toView(demoRow) : null };
   } catch {
     return null;
