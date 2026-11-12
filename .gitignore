@@ -44,3 +44,9 @@ next-env.d.ts
 
 # PayPal doc copies stay on this Mac: they are PayPal's text, and the repository will be public.
 docs/sponsors/paypal/raw/
+
+# test output and local data
+/test-results/
+/playwright-report/
+/.next-test/
+/.data/
