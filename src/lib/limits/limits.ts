@@ -48,11 +48,18 @@ export async function takeFromCounter(
   return true;
 }
 
-/** The client's address as Render's proxy reports it. */
+/**
+ * The client's address. On Render, Cloudflare writes CF-Connecting-IP on every request and
+ * overwrites any copy the caller sent, while X-Forwarded-For keeps the caller's own entries at
+ * the front (Render's PocketBase guide). So CF-Connecting-IP comes first, then the last
+ * X-Forwarded-For entry, which the nearest proxy added.
+ */
 export function clientAddress(request: Request): string {
+  const cf = request.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
   const forwarded = request.headers.get("x-forwarded-for");
-  const first = forwarded?.split(",")[0]?.trim();
-  return first || request.headers.get("x-real-ip") || "unknown";
+  const last = forwarded?.split(",").map((s) => s.trim()).filter(Boolean).pop();
+  return last || "unknown";
 }
 
 /** A salted hash of the address that changes every hour, so raw addresses are never stored. */

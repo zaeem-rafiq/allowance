@@ -40,8 +40,13 @@ describe("usage counters", () => {
 
 describe("client addresses", () => {
   it("are stored only as salted hashes that change every hour", () => {
-    const req = new Request("https://example.test/", { headers: { "x-forwarded-for": "203.0.113.9, 10.0.0.1" } });
-    expect(clientAddress(req)).toBe("203.0.113.9");
+    const viaCloudflare = new Request("https://example.test/", {
+      headers: { "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "6.6.6.6, 203.0.113.9" },
+    });
+    expect(clientAddress(viaCloudflare)).toBe("203.0.113.9");
+    // A caller's own X-Forwarded-For entry at the front is not trusted.
+    const spoofed = new Request("https://example.test/", { headers: { "x-forwarded-for": "6.6.6.6, 203.0.113.9" } });
+    expect(clientAddress(spoofed)).toBe("203.0.113.9");
     const a = addressKey("203.0.113.9", "salt-salt-salt-salt", T0);
     expect(a).not.toContain("203.0.113.9");
     expect(a).toMatch(/^[0-9a-f]{32}$/);
