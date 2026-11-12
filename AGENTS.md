@@ -6,7 +6,7 @@ The owner cannot read or review code. Follow the owner's Global Agent Rules and 
 
 ## Status
 
-building · Live link: not live yet · Started: 2026-11-08
+live · Live link: https://allowance-colm.onrender.com · Started: 2026-11-08 · Live since: 2026-11-12
 
 ## Win condition
 
@@ -14,15 +14,18 @@ Read `WIN_CONDITION.md` before every scoping decision and every hand-over. The a
 
 ## Building blocks
 
-- Next.js and Tailwind, hosted on Render as a web service. Supabase for the database.
-- PayPal sandbox: Payment Method Tokens v3, Orders v2, Disputes API, webhooks, JavaScript SDK v6, `@paypal/agent-toolkit`.
-- Claude through the Anthropic API. Arize for AI tracing. AG Grid Community for the spend log.
+- Next.js and Tailwind, hosted on Render as a web service. Render Postgres (`allowance-db`, free plan, Oregon) for the database, reached only from Render. Local development and the tests use PGlite, an in-process Postgres.
+- PayPal sandbox, direct REST calls: Payment Method Tokens v3 (save PayPal once, hosted approval link), Orders v2 (charge the saved account), Disputes API (evidence), and a webhook with signature verification. Not used: JavaScript SDK v6 and `@paypal/agent-toolkit` (the plan records why).
+- Claude through the Anthropic API: Haiku 5.5 runs the shopping agent, Sonnet 5.5 compiles the rule. AG Grid Community for the spend log. Arize tracing is not built yet; the `ARIZE_*` settings are read by nothing.
 
 ## Commands
 
 - `./check`: runs every check (the secret scan, the feature-map checker, tests, type and lint checks, build). It must pass before any task is done.
 - `npm run dev`: starts the app on port 3100. Port 3000 is used by another project on this Mac.
-- `npm test`: unit and property tests. `npm run e2e`: browser tests.
+- `npm test`: unit and property tests. `npm run e2e`: browser tests. They start their own test-mode server on port 3101 (fakes for PayPal, the AI and the clock, and an in-memory database).
+- `npm run env:check`: prints each setting as set or missing, never a value.
+- `npm run live`: the slow PayPal sandbox suite (real sandbox calls). `npx tsx live/paypal-path.ts start|finish` is the two-step saved-PayPal path test.
+- `npm run eval:attack`: the attack test, 50 rows with the real Claude Haiku agent against a counting fake PayPal. `ATTACK_ROWS=sample` runs the first 10 poisoned rows. Results go to `eval/results/` and `src/data/eval-results.json`.
 
 ## Verification
 
@@ -34,7 +37,7 @@ Read `WIN_CONDITION.md` before every scoping decision and every hand-over. The a
 
 ## Where it runs
 
-- Production: Render web service `allowance`, at https://allowance.onrender.com once the first deploy is live.
+- Production: Render web service `allowance`, at https://allowance-colm.onrender.com.
 - Previews: every pull request gets a Render preview link.
 
 ## Authorized workflow
@@ -81,7 +84,6 @@ This section goes into the project's `AGENTS.md` when the project folder exists.
   - Individuals and teams may enter. More than one entry is allowed if each is substantially different.
   - All materials in English.
 - **Midday checks:** at 12:00 pm CT each day until the deadline, recheck the deadline on the event's own page.
-  - Full audit (hackathon-run, Mode 2) on Wednesday, November 11, at 12:00 pm CT.
   - Final audit on Thursday, November 12, at 8:00 am CT.
 - **Change cutoff:** Tuesday, November 10, 2026, 4:30 am CT. This is one third of the way from the owner's approval (Sunday, November 8, 11:44 pm CT) to the deadline. After it, the idea is frozen and the work is polish. A big change after the cutoff needs the owner's yes.
 - **Submission target:** final entry submitted by Thursday, November 12, at 11:00 am CT, three hours before the deadline. Keep improving the page and README until 1:30 pm CT.
