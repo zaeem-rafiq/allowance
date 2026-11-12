@@ -1,6 +1,8 @@
 # Allowance
 
-Allowance enforces a spending rule for AI shopping agents at the PayPal payment step, so a hidden line on a web page cannot make the agent overspend.
+Allowance checks a spending rule for AI shopping agents before PayPal charges anything, so a hidden line on a web page cannot make the agent overspend.
+
+What sets it apart: the same signed rule that blocks a cart is the evidence Allowance sends PayPal when a charge is disputed. We showed it on a real PayPal sandbox dispute: Allowance sent the signed rule, the cart and the agent's steps 2 seconds after it saw the dispute, and PayPal listed the evidence as submitted by the seller.
 
 **Try it: https://allowance-colm.onrender.com**
 
@@ -67,16 +69,18 @@ All calls are direct REST calls to PayPal's sandbox (`api-m.sandbox.paypal.com`)
 
 Requirements: Node.js 26 (see `.node-version`) and npm. No database server is needed, because local runs use an embedded Postgres (PGlite).
 
+To look around with no keys, start it in test mode:
+
 ```bash
 git clone https://github.com/zaeem-rafiq/allowance.git
 cd allowance
 npm ci
-npm run dev
+ALLOWANCE_TEST_MODE=1 npm run dev
 ```
 
-Open http://localhost:3100. No keys are needed to look around. Without PayPal and Anthropic keys, a run that needs them shows an error card.
+Open http://localhost:3100. Without test mode or real keys, every run, Skip the AI included, ends with "Allowance could not check your rule".
 
-- To look around without keys, run `ALLOWANCE_TEST_MODE=1 npm run dev`. This is how the browser tests run the app. It uses a scripted shopping agent, a fake PayPal, a fixed test owner secret (`TEST_SECRETS` in `src/lib/mode.ts`) and an in-memory database. Sign in at `/owner` and click Save PayPal first, or an allowed cart stops at "no PayPal account is saved yet". It does not test the real AI or the real PayPal.
+- Test mode is how the browser tests run the app. It uses a scripted shopping agent, a fake PayPal, a fixed test owner secret (`TEST_SECRETS` in `src/lib/mode.ts`) and an in-memory database. Sign in at `/owner` and click Save PayPal first, or an allowed cart stops at "no PayPal account is saved yet". It does not test the real AI or the real PayPal.
 - To use real sandbox keys, put `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `ANTHROPIC_API_KEY` in a local `.env.local` file. `.env.example` lists every name.
 - With real keys, the owner screen (`/owner`) saves the sandbox PayPal account. Outside test mode, its secret is created on first run in the git-ignored `.data/dev-secrets.json`, or you can set `OWNER_SECRET` in `.env.local`.
 
@@ -96,4 +100,4 @@ License: MIT. See `LICENSE`.
 
 ## Limits
 
-These are scope choices for the hackathon. Allowance runs on PayPal's sandbox only. The mandate follows the field names of AP2's Intent Mandate but is not official AP2, and no AP2 agent or wallet checks it. There is one demo store. Disputes are opened by hand from the sandbox buyer account, and the evidence code is tested against a stand-in for PayPal's replies. Arize tracing is not built.
+These are scope choices for the hackathon. Allowance runs on PayPal's sandbox only. The mandate follows the field names of AP2's Intent Mandate but is not official AP2, and no AP2 agent or wallet checks it. There is one demo store. Disputes are opened by hand from the sandbox buyer account. Allowance checks PayPal for them when the owner clicks "Check PayPal for disputes" or a dispute's page is open, because the webhook is built but not switched on. Arize tracing is not built.

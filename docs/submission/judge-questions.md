@@ -96,7 +96,7 @@ Proof:
 
 ## 9. Does dispute evidence work on a real PayPal dispute?
 
-The code is built and tested, and a real sandbox dispute has not yet been shown to accept it. When the sandbox buyer disputes a captured charge, Allowance matches it by capture ID. It sends the signed mandate, the cart and the agent's steps (notes and a PDF) through the provide-evidence call. It sends once, and only when the dispute carries the provide-evidence link and an evidence request addressed to the seller. The tests use a stand-in for PayPal's replies. Disputes are opened by hand from the sandbox buyer account.
+Yes. On November 12, 2026, the sandbox buyer disputed a $34 Allowance charge (dispute PP-R-BZT-10200203). Allowance matched capture 4UW07793M3834035H and sent the evidence 2 seconds after it first saw the dispute, and PayPal then listed the evidence as submitted by the seller and moved the dispute to "Waiting for the buyer". When the sandbox buyer disputes a captured charge, Allowance matches it by capture ID. It sends the signed mandate, the cart and the agent's steps (notes and a PDF) through the provide-evidence call. It sends once, and only when the dispute carries the provide-evidence link and an evidence request addressed to the seller, as the evidence type PayPal asked for. The automated tests use a stand-in for PayPal's replies. Disputes are opened by hand from the sandbox buyer account.
 
 The webhook takes dispute events only. It does nothing when `PAYPAL_WEBHOOK_ID` is not set, and it rejects any message that PayPal's verify-webhook-signature call does not confirm. It then re-reads the dispute from PayPal and ignores the message's own payload.
 
