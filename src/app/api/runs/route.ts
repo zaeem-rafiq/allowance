@@ -7,6 +7,7 @@ import { CAPS, HOUR_MS, addressKey, clientAddress, runInProgress, takeFromCounte
 import { forbidden, isSameOrigin, shouldUseSecureCookies } from "@/lib/http";
 import { deriveSigningKey } from "@/lib/mandate/sign";
 import { getPayPal, now } from "@/lib/ports";
+import { getSecret } from "@/lib/secrets";
 import { type RunKind, MAX_LINE_CHARS, createRun, executeRun } from "@/lib/runs/run";
 import { resolveVisitor } from "@/lib/visitor/request";
 
@@ -25,14 +26,29 @@ export async function POST(request: Request) {
     return Response.json({ error: "Type a hidden line first." }, { status: 400 });
   }
 
+  const signingSecret = getSecret("MANDATE_SIGNING_KEY");
+  if (!signingSecret) return Response.json({ error: CANNOT_CHECK }, { status: 503 });
+  const at = now();
+  const addr = addressKey(clientAddress(request), signingSecret, at);
+
+  // The address cap comes first, so requests without a cookie cannot create ledgers without limit.
+  let db;
+  try {
+    db = await getDb();
+    const allowed = await db.transaction((tx) =>
+      takeFromCounter(tx, `checkout:addr:${addr}`, CAPS.addressCheckouts, HOUR_MS, at),
+    );
+    if (!allowed) return Response.json({ cap: true, error: "You have used today's live tries." }, { status: 429 });
+  } catch {
+    return Response.json({ error: CANNOT_CHECK }, { status: 503 });
+  }
+
   let visitor;
   try {
     visitor = await resolveVisitor(request, shouldUseSecureCookies(request));
   } catch {
     return Response.json({ error: CANNOT_CHECK }, { status: 503 });
   }
-  const db = await getDb();
-  const at = now();
 
   // Caps (R22): one run at a time, checkout actions per address, and for AI runs the visitor
   // and address caps and the AI budget. A counter that cannot be read fails closed (R15).
@@ -44,8 +60,6 @@ export async function POST(request: Request) {
       await tx.query("SELECT id FROM ledgers WHERE id = $1 FOR UPDATE", [visitor.ledgerId]);
       const refuse = (why: "busy" | "cap" | "budget") => ({ ok: false as const, why });
       if (await runInProgress(tx, visitor.ledgerId, at)) return refuse("busy");
-      const addr = addressKey(clientAddress(request), visitor.signingSecret, at);
-      if (!(await takeFromCounter(tx, `checkout:addr:${addr}`, CAPS.addressCheckouts, HOUR_MS, at))) return refuse("cap");
       if (kind !== "skip") {
         if (!(await aiBudgetState(tx, at)).open) return refuse("budget");
         if (!(await takeFromCounter(tx, `run:ledger:${visitor.ledgerId}`, CAPS.visitorRuns, HOUR_MS, at))) return refuse("cap");

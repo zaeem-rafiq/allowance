@@ -4,7 +4,12 @@
 export const TEST_MODE_VAR = "ALLOWANCE_TEST_MODE";
 
 export function isTestMode(env: Record<string, string | undefined> = process.env): boolean {
-  return env[TEST_MODE_VAR] === "1";
+  const on = env[TEST_MODE_VAR] === "1";
+  // A production build never runs on the fakes, the test secrets or the test control route.
+  if (on && env.NODE_ENV === "production") {
+    throw new Error(`${TEST_MODE_VAR}=1 is not allowed in a production build. Remove ${TEST_MODE_VAR} from the environment.`);
+  }
+  return on;
 }
 
 /** Throws when test mode is on in a production build. Called before any port is bound. */

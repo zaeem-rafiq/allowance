@@ -13,6 +13,8 @@ describe("test mode switch", () => {
     expect(() => assertModeAllowed({ ALLOWANCE_TEST_MODE: "1", NODE_ENV: "production" })).toThrow(
       /ALLOWANCE_TEST_MODE/,
     );
+    expect(() => isTestMode({ ALLOWANCE_TEST_MODE: "1", NODE_ENV: "production" })).toThrow(/ALLOWANCE_TEST_MODE/);
+    expect(isTestMode({ NODE_ENV: "production" })).toBe(false);
   });
 
   it("allows test mode in development and in tests", () => {

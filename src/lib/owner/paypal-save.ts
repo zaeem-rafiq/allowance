@@ -48,9 +48,11 @@ export async function finishSave(
   now: Date,
 ): Promise<FinishOutcome> {
   const pending = await getSetting<PendingSave>(db, PENDING_KEY);
-  if (!pending || !setupTokenId || pending.setupTokenId !== setupTokenId || pending.nonce !== session.nonce) {
-    return "refused";
-  }
+  if (!pending || pending.nonce !== session.nonce) return "refused";
+  // PayPal's return parameters are not stated in the saved docs. When a token comes back it must
+  // match; when none does, the pending token this same owner session started is used.
+  if (setupTokenId && pending.setupTokenId !== setupTokenId) return "refused";
+  setupTokenId = pending.setupTokenId;
   try {
     const result = await paypal.finishSave({ setupTokenId, requestId: `save-${setupTokenId}` });
     const saved: SavedPayPal = { paymentTokenId: result.paymentTokenId, customerId: result.customerId, savedAt: now.toISOString() };

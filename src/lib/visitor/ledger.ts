@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Queryable } from "@/lib/db";
 import { DEMO_MANDATE } from "@/lib/mandate/demo-mandate";
 import type { IntentMandate } from "@/lib/mandate/schema";
-import { type SignedMandate, signMandate } from "@/lib/mandate/sign";
+import { type SignedMandate, deriveSigningKey, mandateHash, signMandate } from "@/lib/mandate/sign";
 
 export const VISITOR_COOKIE = "allowance_visitor";
 export const DEMO_LEDGER_ID = "demo-parent";
@@ -53,6 +53,19 @@ export async function currentMandate(q: Queryable, ledgerId: string): Promise<Ma
   return rows[0] ?? null;
 }
 
+/**
+ * If a ledger's current mandate is the demo mandate signed by another key (for example after
+ * MANDATE_SIGNING_KEY changed), signs the demo mandate again from the code's own copy, as a new
+ * version. Only the trusted copy in code is re-signed, never mandate text read from the database.
+ */
+async function resignDemoCopyIfKeyChanged(q: Queryable, ledgerId: string, signingSecret: string, now: Date): Promise<void> {
+  const current = await currentMandate(q, ledgerId);
+  if (!current) return;
+  if (current.public_key === deriveSigningKey(signingSecret).publicKeyBase64) return;
+  if (current.hash !== mandateHash(DEMO_MANDATE)) return;
+  await insertMandateVersion(q, ledgerId, signMandate(DEMO_MANDATE, signingSecret), now);
+}
+
 /** Creates the demo parent's ledger and signed demo mandate once. */
 export async function ensureDemoLedger(q: Queryable, signingSecret: string, now: Date): Promise<void> {
   await q.query(
@@ -62,6 +75,8 @@ export async function ensureDemoLedger(q: Queryable, signingSecret: string, now:
   await q.query("SELECT id FROM ledgers WHERE id = $1 FOR UPDATE", [DEMO_LEDGER_ID]);
   if (!(await currentMandate(q, DEMO_LEDGER_ID))) {
     await insertMandateVersion(q, DEMO_LEDGER_ID, signMandate(DEMO_MANDATE, signingSecret), now);
+  } else {
+    await resignDemoCopyIfKeyChanged(q, DEMO_LEDGER_ID, signingSecret, now);
   }
 }
 
@@ -85,11 +100,16 @@ export async function getOrCreateVisitorLedger(
     const rows = await q.query<{ id: string }>("SELECT id FROM ledgers WHERE visitor_key_hash = $1", [
       hashVisitorKey(cookieValue),
     ]);
-    if (rows[0]) return { ledgerId: rows[0].id, newCookie: null };
+    if (rows[0]) {
+      await q.query("SELECT id FROM ledgers WHERE id = $1 FOR UPDATE", [rows[0].id]);
+      await resignDemoCopyIfKeyChanged(q, rows[0].id, signingSecret, now);
+      return { ledgerId: rows[0].id, newCookie: null };
+    }
   }
   await ensureDemoLedger(q, signingSecret, now);
   const demo = await currentMandate(q, DEMO_LEDGER_ID);
   if (!demo) throw new Error("Demo mandate missing");
+  if (demo.public_key !== deriveSigningKey(signingSecret).publicKeyBase64) throw new Error("Demo mandate key mismatch");
   const cookie = randomBytes(32).toString("base64url");
   const ledgerId = `v_${randomUUID()}`;
   await q.query("INSERT INTO ledgers (id, kind, visitor_key_hash, created_at) VALUES ($1, 'visitor', $2, $3)", [

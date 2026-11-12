@@ -27,7 +27,7 @@ export class DatabaseUnavailableError extends Error {
 
 const MIGRATION_LOCK_KEY = 727274001;
 
-async function createPg(url: string): Promise<Db> {
+export async function createPg(url: string): Promise<Db> {
   const { Pool } = await import("pg");
   const pool = new Pool({ connectionString: url, max: 8, connectionTimeoutMillis: 5000 });
   pool.on("error", () => {

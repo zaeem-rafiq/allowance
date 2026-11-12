@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createPglite, migrate, type Db } from "@/lib/db";
 import { TEST_SECRETS } from "@/lib/mode";
+import { deriveSigningKey } from "@/lib/mandate/sign";
 import { DEMO_LEDGER_ID, ensureDemoLedger, getOrCreateVisitorLedger } from "./ledger";
 
 const KEY = TEST_SECRETS.MANDATE_SIGNING_KEY;
@@ -38,5 +39,25 @@ describe("ledgers", () => {
     const forged = await getOrCreateVisitorLedger(db, "A".repeat(43), KEY, T0);
     expect([a.ledgerId, b.ledgerId]).not.toContain(forged.ledgerId);
     expect(forged.newCookie).not.toBe("A".repeat(43));
+  });
+
+  it("signs the demo mandate again when the server's signing key changes", async () => {
+    const first = await getOrCreateVisitorLedger(db, undefined, KEY, T0);
+    const newKey = "a-different-signing-key-for-this-test";
+    const again = await getOrCreateVisitorLedger(db, first.newCookie!, newKey, T0);
+    expect(again.ledgerId).toBe(first.ledgerId);
+    const versions = await db.query<{ version: number; public_key: string }>(
+      "SELECT version, public_key FROM mandate_versions WHERE ledger_id = $1 ORDER BY version",
+      [first.ledgerId],
+    );
+    expect(versions).toHaveLength(2);
+    expect(versions[1].public_key).toBe(deriveSigningKey(newKey).publicKeyBase64);
+    // A new visitor re-signs the demo parent's copy too, and starts from it.
+    await getOrCreateVisitorLedger(db, undefined, newKey, T0);
+    const demo = await db.query<{ public_key: string }>(
+      "SELECT public_key FROM mandate_versions WHERE ledger_id = $1 ORDER BY version DESC LIMIT 1",
+      [DEMO_LEDGER_ID],
+    );
+    expect(demo[0].public_key).toBe(deriveSigningKey(newKey).publicKeyBase64);
   });
 });

@@ -34,8 +34,13 @@ describe("saving PayPal", () => {
     const token = new URL(url).searchParams.get("token")!;
     expect(await finishSave(db, paypal, { nonce: "someone-else", issuedAt: 0 }, token, NOW)).toBe("refused");
     expect(await finishSave(db, paypal, owner, "FAKE-SETUP-999", NOW)).toBe("refused");
-    expect(await finishSave(db, paypal, owner, null, NOW)).toBe("refused");
     expect(await getSavedPayPal(db)).toBeNull();
+  });
+
+  it("uses the pending token from the same owner session when PayPal returns none", async () => {
+    await startSave(db, paypal, owner, "https://example.test", NOW);
+    expect(await finishSave(db, paypal, { nonce: "someone-else", issuedAt: 0 }, null, NOW)).toBe("refused");
+    expect(await finishSave(db, paypal, owner, null, NOW)).toBe("saved");
   });
 
   it("keeps the earlier account when a second save is not confirmed, and replaces it once confirmed", async () => {
