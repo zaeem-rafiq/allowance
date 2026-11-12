@@ -34,4 +34,4 @@ In the first 30 seconds of the video, a PayPal judge sees an AI agent catch a re
 
 ## Decisions
 
-- **November 7, 2026:** the owner chose Allowance, spending rules for AI agents enforced at the PayPal payment, with dispute evidence. A skeptic-judge helper had scored it 23 of 25, against 21 for Holdback. The build brief is in `BRIEF.md`.
+- **November 7, 2026:** the owner chose Allowance, spending rules for AI agents enforced at the PayPal payment, with dispute evidence. A skeptic-judge helper had scored it 23 of 25, against 21 for Holdback. The build brief is in `docs/brief.md`.

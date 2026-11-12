@@ -1,5 +1,7 @@
 # Allowance: build brief
 
+> **Note added November 11, 2026:** two building blocks changed after approval. The database is Render Postgres on the free plan, because a new Supabase project would cost $10 a month and only a free database was approved. The live address is https://allowance-colm.onrender.com, not allowance.onrender.com. The approved text below is unchanged.
+
 Written Saturday, November 7, 2026, 2:45 pm CT. This brief is your first approval stop: the factory rule says I show you a one-page brief before building anything. I will not build anything until you approve it.
 
 ## Decisions for you

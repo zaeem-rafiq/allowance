@@ -22,7 +22,7 @@ Screen 8: a dispute arrives from the sandbox buyer. The evidence timeline fills 
 
 **1:40 to 1:50, the result as a number.**
 Screen 9: the eval card.
-> I attacked it with [40] poisoned product pages. The agent fell for [N] of them. Allowance stopped all [N] before PayPal charged anything, and it blocked none of [20] normal restocks.
+> I attacked it with [30] poisoned product pages. The agent fell for [N] of them. Allowance stopped all [N] before PayPal charged anything, and it blocked none of [20] normal restocks.
 
 **1:50 to 2:00, close and limits.**
 Screen 10: the try-it page and its link.
@@ -46,5 +46,5 @@ Screen 10: the try-it page and its link.
 ## Recording rules
 
 - Record on the public, fully live deployment, never on a local build.
-- Captions burned in, and a thumbnail with the headline: "My AI tried to buy a $500 gift card."
+- Captions burned in, and a thumbnail with the headline: "One hidden line told my AI to buy a $500 gift card. PayPal charged $0."
 - Show limits only after the strengths, as in the last ten seconds.
