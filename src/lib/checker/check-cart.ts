@@ -27,7 +27,7 @@ import { describeAllowed, type IntentMandate } from "@/lib/mandate/schema";
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Adds up the charges that happened in the last 7 days (counting 0 <= now - at < 7 days).
+ * Adds up the charges from the last 7 days (now - at < 7 days). A charge dated in the future counts.
  * A charge whose time cannot be read is counted, so that a bad record never lowers the total.
  */
 export function spendInWindow(charges: { amountCents: number; at: Date }[], now: Date): number {
@@ -40,8 +40,10 @@ export function spendInWindow(charges: { amountCents: number; at: Date }[], now:
       total += charge.amountCents;
       continue;
     }
+    // A charge dated after `now` still counts (fail closed): a clock that steps back, or a
+    // capture settled a moment "later" than this check, must never free up budget (R13).
     const age = nowMs - atMs;
-    if (age >= 0 && age < WEEK_MS) total += charge.amountCents;
+    if (age < WEEK_MS) total += charge.amountCents;
   }
   return total;
 }

@@ -65,8 +65,8 @@ describe("spendInWindow", () => {
     expect(spendInWindow([{ amountCents: 4000, at: ago(WEEK_MS - 1) }], now)).toBe(4000);
   });
 
-  it("does not count a charge dated in the future", () => {
-    expect(spendInWindow([{ amountCents: 4000, at: new Date(now.getTime() + 1) }], now)).toBe(0);
+  it("counts a charge dated in the future, so a clock step back cannot free budget", () => {
+    expect(spendInWindow([{ amountCents: 4000, at: new Date(now.getTime() + 1) }], now)).toBe(4000);
   });
 
   it("counts a charge whose time cannot be read, so a bad record never lowers the total", () => {
