@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The browser tests build into .next-test (playwright.config.ts sets ALLOWANCE_DIST_DIR).
+    ".next-test/**",
   ]),
 ]);
 
