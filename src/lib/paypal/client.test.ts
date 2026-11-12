@@ -289,6 +289,36 @@ describe("PayPal sandbox client: refusals and retries", () => {
     expect(calls.order).toHaveLength(1);
   });
 
+  it("reports unknown when a timeout is followed by PREVIOUS_REQUEST_IN_PROGRESS (the first request may still capture)", async () => {
+    const { client, calls } = setup({
+      orders: [
+        () => {
+          throw timeout();
+        },
+        () => failure(409, { name: "RESOURCE_CONFLICT", details: [{ issue: "PREVIOUS_REQUEST_IN_PROGRESS" }] }),
+      ],
+    });
+    expect(await charge(client)).toEqual({ status: "unknown", reason: "PREVIOUS_REQUEST_IN_PROGRESS" });
+    expect(calls.order).toHaveLength(2);
+  });
+
+  it("reports unknown, not refused, for any refusal of the repeat after a timeout", async () => {
+    const { client } = setup({
+      orders: [
+        () => {
+          throw timeout();
+        },
+        () => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] }),
+      ],
+    });
+    expect(await charge(client)).toEqual({ status: "unknown", reason: "INSTRUMENT_DECLINED" });
+  });
+
+  it("still refuses a first-request refusal, when no order can have gone through", async () => {
+    const { client } = setup({ orders: [() => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] })] });
+    expect(await charge(client)).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
+  });
+
   it("reports unknown CAPTURE_PENDING when the order is COMPLETED but the capture is PENDING", async () => {
     const { client } = setup({ orders: [() => pendingCapture()] });
     expect(await charge(client)).toEqual({ status: "unknown", reason: "CAPTURE_PENDING" });

@@ -217,7 +217,10 @@ export class PayPalSandboxClient implements PayPalPort {
         if (err instanceof PayPalHttpError) {
           const reason = err.status === 429 ? "RATE_LIMITED" : plainReason(err.status, err.body);
           // The same request ID still being processed: the first request may yet capture.
-          if (/DUPLICATE/.test(reason)) return { status: "unknown", reason };
+          // PayPal's Orders v2 errors list PREVIOUS_REQUEST_IN_PROGRESS (RESOURCE_CONFLICT) for this.
+          if (err.status === 409 || /DUPLICATE|PREVIOUS_REQUEST_IN_PROGRESS|RESOURCE_CONFLICT/.test(reason)) {
+            return { status: "unknown", reason };
+          }
           if (err.status === 429) {
             lastError = reason;
             if (attempt === 0) continue;
@@ -228,7 +231,9 @@ export class PayPalSandboxClient implements PayPalPort {
             lastError = reason;
             continue;
           }
-          return { status: "refused", reason };
+          // Once an order may have reached PayPal, a refused repeat cannot prove the first
+          // request did not capture, so the hold stays until a later repeat settles it.
+          return orderMaybeSent ? { status: "unknown", reason } : { status: "refused", reason };
         }
         orderMaybeSent = true;
         lastError = err instanceof PayPalTimeoutError ? err.message : "PAYPAL_ERROR";
