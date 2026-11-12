@@ -11,7 +11,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "e2e": "playwright test",
     "env:check": "tsx scripts/env-check.ts",
-    "live": "vitest run --config vitest.live.config.ts",
+    "live": "NODE_ENV=development vitest run --config vitest.live.config.ts",
     "eval:attack": "vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
