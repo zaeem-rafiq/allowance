@@ -232,9 +232,9 @@ export class PayPalSandboxClient implements PayPalPort {
             lastError = reason;
             continue;
           }
-          // Once an order may have reached PayPal, a refused repeat cannot prove the first
-          // request did not capture, so the hold stays until a later repeat settles it.
-          return orderMaybeSent ? { status: "unknown", reason } : { status: "refused", reason };
+          // A definite refusal is final even on a repeat: PayPal answers a repeated request ID
+          // with the first request's own result, and a request still running is a 409 (above).
+          return { status: "refused", reason };
         }
         orderMaybeSent = true;
         lastError = err instanceof PayPalTimeoutError ? err.message : "PAYPAL_ERROR";

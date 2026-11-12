@@ -166,6 +166,10 @@ describe("settling open attempts on the visitor's next read", () => {
     expect(repeat.description).toBe(first.description);
     expect(repeat.items).toEqual(first.items);
     expect(repeat.vaultId).toBe(first.vaultId);
+    // The repeat tells PayPal's client the first request may have gone through, so a failed
+    // sign-in while settling keeps the hold instead of releasing it.
+    expect(first.repeat).toBeFalsy();
+    expect(repeat.repeat).toBe(true);
   });
 
   it("sends the approved-by-the-parent description on the repeat of an approved charge", async () => {

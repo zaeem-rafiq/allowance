@@ -302,7 +302,7 @@ describe("PayPal sandbox client: refusals and retries", () => {
     expect(calls.order).toHaveLength(2);
   });
 
-  it("reports unknown, not refused, for any refusal of the repeat after a timeout", async () => {
+  it("refuses a definite refusal of the repeat after a timeout (PayPal answers a repeated request ID with the first result)", async () => {
     const { client } = setup({
       orders: [
         () => {
@@ -311,7 +311,22 @@ describe("PayPal sandbox client: refusals and retries", () => {
         () => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] }),
       ],
     });
-    expect(await charge(client)).toEqual({ status: "unknown", reason: "INSTRUMENT_DECLINED" });
+    expect(await charge(client)).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
+  });
+
+  it("reports unknown for any 409, even with no readable body", async () => {
+    const { client, calls } = setup({ orders: [() => new Response("<html>conflict</html>", { status: 409 })] });
+    expect((await charge(client)).status).toBe("unknown");
+    expect(calls.order).toHaveLength(1);
+  });
+
+  it("refuses a settling repeat that PayPal declines, so the hold is released and the attempt does not stay open", async () => {
+    const { client, calls } = setup({
+      orders: [() => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] })],
+    });
+    const result = await client.charge({ vaultId: "VAULT-1", requestId: "attempt-1", items: [{ name: "Dish soap", quantity: 1, unitCents: 400 }], description: "d", repeat: true });
+    expect(result).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
+    expect(calls.order).toHaveLength(1);
   });
 
   it("reports unknown for a first-request 409 PREVIOUS_REQUEST_IN_PROGRESS (a double click racing the same request ID)", async () => {
