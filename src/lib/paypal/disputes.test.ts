@@ -42,8 +42,29 @@ describe("reading PayPal's dispute answers", () => {
       captureIds: ["CAP-A", "CAP-B"],
       hasProvideEvidenceLink: true,
       evidenceRequestedFromSeller: true,
+      requestedEvidenceType: "OTHER",
     });
     expect(canProvideEvidence(d)).toBe(true);
+  });
+
+  it("reads the sandbox's real dispute: the provide_evidence link and the type PayPal asked for", () => {
+    // The shape PayPal's sandbox returned for a real "item not received" inquiry on Nov 12, 2026.
+    const d = parseDetail({
+      dispute_id: "PP-R-PFM-10200201",
+      status: "WAITING_FOR_SELLER_RESPONSE",
+      reason: "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+      disputed_transactions: [{ seller_transaction_id: "3NT09554201156107" }],
+      links: ["self", "accept_claim", "provide_evidence", "send_message", "escalate", "make_offer"].map((rel) => ({ rel })),
+      evidences: [
+        { evidence_type: "CREATE", source: "SUBMITTED_BY_BUYER" },
+        { evidence_type: "PROOF_OF_FULFILLMENT", source: "REQUESTED_FROM_SELLER" },
+      ],
+    });
+    expect(d.hasProvideEvidenceLink).toBe(true);
+    expect(d.requestedEvidenceType).toBe("PROOF_OF_FULFILLMENT");
+    expect(canProvideEvidence(d)).toBe(true);
+    const odd = parseDetail({ ...d, dispute_id: "PP-D-2", status: "OPEN", evidences: [{ evidence_type: "x; drop", source: "REQUESTED_FROM_SELLER" }] });
+    expect(odd.requestedEvidenceType).toBe("OTHER");
   });
 
   it("needs both the link and the request: either one alone is not enough", () => {
@@ -102,6 +123,21 @@ describe("the sandbox adapter", () => {
       `Content-Disposition: form-data; name="evidence-file"; filename="allowance-evidence.pdf"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.4`,
     );
     expect(body).toContain("%%EOF");
+  });
+
+  it("sends the evidence type PayPal asked for, and OTHER for a missing or malformed one", async () => {
+    const types: string[] = [];
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = Buffer.from(init!.body as Uint8Array).toString("latin1");
+      types.push(JSON.parse(body.split("\r\n\r\n")[1].split("\r\n--")[0]).evidences[0].evidence_type);
+      return reply(200, {});
+    });
+    const port = new SandboxDisputes(tokens, { fetch: fetchMock as unknown as typeof fetch });
+    const ev = { notes: "n", document: { name: "d.pdf", json: "{}" } };
+    await port.provideEvidence("PP-D-1", { ...ev, evidenceType: "PROOF_OF_FULFILLMENT" });
+    await port.provideEvidence("PP-D-1", ev);
+    await port.provideEvidence("PP-D-1", { ...ev, evidenceType: "other\"}" });
+    expect(types).toEqual(["PROOF_OF_FULFILLMENT", "OTHER", "OTHER"]);
   });
 
   it("turns a 4xx into a plain reason that is not retried, and an outage into one that is", async () => {

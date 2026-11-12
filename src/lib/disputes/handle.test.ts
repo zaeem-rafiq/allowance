@@ -233,6 +233,8 @@ describe("sending evidence", () => {
 
     const sent = fakeDisputeCalls().lastEvidence!;
     expect(sent.disputeId).toBe("PP-D-1");
+    // PayPal refuses any evidence type other than the one it asked the seller for.
+    expect(sent.evidence.evidenceType).toBe("PROOF_OF_FULFILLMENT");
     const doc = JSON.parse(sent.evidence.document.json);
     const version = (await db.query<{ version: number; hash: string; signature: string; public_key: string }>(
       "SELECT version, hash, signature, public_key FROM mandate_versions WHERE id = $1",

@@ -56,6 +56,7 @@ export class FakeDisputes implements DisputesPort {
       captureIds: [s.captureId],
       hasProvideEvidenceLink: s.withEvidenceLink,
       evidenceRequestedFromSeller: s.requestedFromSeller ?? s.withEvidenceLink,
+      requestedEvidenceType: (s.requestedFromSeller ?? s.withEvidenceLink) ? "PROOF_OF_FULFILLMENT" : null,
     };
   }
 

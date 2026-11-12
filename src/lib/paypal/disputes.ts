@@ -24,6 +24,8 @@ export interface DisputeDetail {
   hasProvideEvidenceLink: boolean;
   /** An `evidences` entry has `source: "REQUESTED_FROM_SELLER"`. */
   evidenceRequestedFromSeller: boolean;
+  /** The `evidence_type` PayPal asked the seller for, such as PROOF_OF_FULFILLMENT. PayPal refuses any other type. */
+  requestedEvidenceType: string | null;
 }
 
 export interface EvidenceInput {
@@ -31,6 +33,8 @@ export interface EvidenceInput {
   notes: string;
   /** The full record. `json` is the text of the record. The adapter turns it into the uploaded file. */
   document: { name: string; json: string };
+  /** The type PayPal asked for. Missing or malformed, the adapter sends OTHER. */
+  evidenceType?: string;
 }
 
 export type EvidenceResult =
@@ -60,6 +64,11 @@ export function canProvideEvidence(d: Pick<DisputeDetail, "hasProvideEvidenceLin
 }
 
 /** PayPal's upload types are jpg, jpeg, gif, png and pdf, so plain text must go up as a PDF. */
+/** PayPal's evidence types are upper-case words joined by underscores; anything else becomes OTHER. */
+export function safeEvidenceType(type: string | null | undefined): string {
+  return type && /^[A-Z_]{1,64}$/.test(type) ? type : "OTHER";
+}
+
 export const EVIDENCE_CONTENT_TYPE = "application/pdf";
 
 /** ASCII only: the PDF uses a built-in font, and PayPal's notes pattern is plain text. */
@@ -193,9 +202,20 @@ export function parseDetail(json: unknown): DisputeDetail {
   const captureIds = asArray(json.disputed_transactions)
     .map((t) => (isRecord(t) ? str(t.seller_transaction_id) : null))
     .filter((v): v is string => v !== null);
-  const hasProvideEvidenceLink = asArray(json.links).some((l) => isRecord(l) && l.rel === "provide-evidence");
-  const evidenceRequestedFromSeller = asArray(json.evidences).some((e) => isRecord(e) && e.source === "REQUESTED_FROM_SELLER");
-  return { id, status, reason: str(json.reason), captureIds, hasProvideEvidenceLink, evidenceRequestedFromSeller };
+  // The sandbox names the link `provide_evidence`; PayPal's docs spell it `provide-evidence`.
+  const hasProvideEvidenceLink = asArray(json.links).some((l) => isRecord(l) && (l.rel === "provide_evidence" || l.rel === "provide-evidence"));
+  const requests = asArray(json.evidences).filter((e): e is Record<string, unknown> => isRecord(e) && e.source === "REQUESTED_FROM_SELLER");
+  const evidenceRequestedFromSeller = requests.length > 0;
+  const requestedType = requests.map((e) => str(e.evidence_type)).find((t) => t !== null) ?? null;
+  return {
+    id,
+    status,
+    reason: str(json.reason),
+    captureIds,
+    hasProvideEvidenceLink,
+    evidenceRequestedFromSeller,
+    requestedEvidenceType: requestedType === null ? null : safeEvidenceType(requestedType),
+  };
 }
 
 export class SandboxDisputes implements DisputesPort {
@@ -242,7 +262,7 @@ export class SandboxDisputes implements DisputesPort {
       const input = {
         evidences: [
           {
-            evidence_type: "OTHER",
+            evidence_type: safeEvidenceType(evidence.evidenceType),
             notes: asciiOnly(evidence.notes).slice(0, MAX_NOTES_CHARS),
             documents: [{ name: file.filename }],
           },

@@ -126,7 +126,8 @@ export async function processDispute(db: Db, port: DisputesPort, disputeId: stri
   }
   let result: EvidenceResult;
   try {
-    result = await port.provideEvidence(disputeId, evidence);
+    // PayPal refuses evidence of any type other than the one it asked for.
+    result = await port.provideEvidence(disputeId, { ...evidence, evidenceType: detail.requestedEvidenceType ?? undefined });
   } catch {
     result = { ok: false, reason: "PAYPAL_UNREACHABLE", retryable: true };
   }
