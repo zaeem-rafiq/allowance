@@ -15,6 +15,8 @@ const NOTICES: Record<string, { text: string; tone: "good" | "bad" }> = {
     tone: "bad",
   },
   "paypal=failed": { text: "PayPal did not accept the saved account. Nothing changed. Try again.", tone: "bad" },
+  "recorded=set": { text: "Your latest run in this browser is now the recorded run.", tone: "good" },
+  "recorded=none": { text: "No finished run found in this browser. Run Try it on the home page first.", tone: "bad" },
   "error=wrong": { text: "That secret is not right.", tone: "bad" },
   "error=not-configured": { text: "Owner sign-in is not configured on this server.", tone: "bad" },
 };
@@ -35,7 +37,7 @@ export default function OwnerPage({ searchParams }: PageProps<"/owner">) {
 
 async function OwnerPanel({ searchParams }: { searchParams: PageProps<"/owner">["searchParams"] }) {
   const params = await searchParams;
-  const key = ["paypal", "error"]
+  const key = ["paypal", "error", "recorded"]
     .map((k) => (typeof params[k] === "string" ? `${k}=${params[k]}` : null))
     .find((k) => k && NOTICES[k]);
   const notice = key ? NOTICES[key] : null;
@@ -111,6 +113,21 @@ async function OwnerPanel({ searchParams }: { searchParams: PageProps<"/owner">[
             className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-zinc-900"
           >
             {saved ? "Replace saved PayPal" : "Save PayPal"}
+          </button>
+        </form>
+      </div>
+      <div className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
+        <h2 className="text-lg font-semibold">Recorded run</h2>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Visitors see the recorded run when they reach a usage cap or the AI is busy. It is a real run, shown with the
+          date it happened.
+        </p>
+        <form method="post" action="/api/owner/feature-run" className="mt-4">
+          <button
+            type="submit"
+            className="rounded-lg border border-zinc-300 px-4 py-2 font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            Use my latest run as the recorded run
           </button>
         </form>
       </div>

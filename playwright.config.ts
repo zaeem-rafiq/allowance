@@ -6,6 +6,7 @@ import { defineConfig, devices } from "@playwright/test";
 // mistake. One worker, because the tests share that one server's fakes and clock.
 export default defineConfig({
   testDir: "./e2e",
+  globalSetup: "./e2e/global-setup.ts",
   forbidOnly: !!process.env.CI,
   workers: 1,
   use: { baseURL: "http://localhost:3101" },

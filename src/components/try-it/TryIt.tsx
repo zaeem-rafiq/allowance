@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { ResultCard } from "@/lib/runs/card";
 import { describeExtras, forcedCart } from "@/lib/runs/forced-cart";
 
@@ -23,7 +23,15 @@ export function TryIt() {
   const [card, setCard] = useState<ResultCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+  const [cap, setCap] = useState(false);
   const inFlight = useRef(false);
+  // The buttons stay disabled until the page is interactive, so an early click cannot submit
+  // the form as a plain page load.
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   const tooLong = line.length > MAX;
   const empty = line.trim().length === 0;
@@ -43,6 +51,7 @@ export function TryIt() {
     setCard(null);
     setError(null);
     setRunId(null);
+    setCap(false);
     try {
       const res = await fetch("/api/runs", {
         method: "POST",
@@ -51,7 +60,8 @@ export function TryIt() {
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null);
-        setError(body?.error ?? "Something went wrong. Nothing was charged.");
+        if (body?.cap) setCap(true);
+        else setError(body?.error ?? "Something went wrong. Nothing was charged.");
         return;
       }
       const reader = res.body.getReader();
@@ -104,7 +114,7 @@ export function TryIt() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="submit"
-            disabled={running !== null || empty || tooLong}
+            disabled={!hydrated || running !== null || empty || tooLong}
             className="rounded-xl bg-zinc-900 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             {running === "agent" ? "Running…" : "Try it"}
@@ -120,7 +130,7 @@ export function TryIt() {
           <button
             type="button"
             onClick={() => void start("restock")}
-            disabled={running !== null}
+            disabled={!hydrated || running !== null}
             className="self-start text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
           >
             Try a normal restock
@@ -128,7 +138,7 @@ export function TryIt() {
           <button
             type="button"
             onClick={() => void start("skip")}
-            disabled={running !== null || empty || tooLong}
+            disabled={!hydrated || running !== null || empty || tooLong}
             className="self-start text-left text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
           >
             Skip the AI: send the cart your line asked for
@@ -138,7 +148,15 @@ export function TryIt() {
       </form>
 
       <section aria-label="Result" aria-live="polite" className="min-h-40">
-        {error ? (
+        {cap ? (
+          <div className="flex flex-col gap-3 rounded-2xl border border-zinc-300 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
+            <p className="text-xl font-semibold">You have used today&apos;s live tries.</p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Skip the AI still works: it sends the cart your line asked for straight to checkout, with no AI call. Below
+              is a real run recorded earlier.
+            </p>
+          </div>
+        ) : error ? (
           <div className="rounded-2xl border border-zinc-300 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
             <p className="text-lg font-semibold">{error}</p>
           </div>
@@ -154,6 +172,8 @@ export function TryIt() {
           </div>
         )}
       </section>
+
+      {(cap || card?.ending === "e") && <RecordedRunView />}
 
       {steps.length > 0 && (
         <section aria-label="What the AI did" className="flex flex-col gap-2">
@@ -179,6 +199,44 @@ export function TryIt() {
         </section>
       )}
     </div>
+  );
+}
+
+interface RecordedRun {
+  recordedAt: string;
+  hiddenLine: string | null;
+  card: ResultCard;
+  steps: Step[];
+}
+
+function RecordedRunView() {
+  const [run, setRun] = useState<RecordedRun | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/runs/featured")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => live && setRun(body?.run ?? null))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!run) return null;
+  const date = new Date(run.recordedAt).toLocaleDateString("en-US", { dateStyle: "long", timeZone: "America/Chicago" });
+  return (
+    <section aria-label="Recorded run" className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Recorded on {date}</h2>
+      {run.hiddenLine && <p className="font-mono text-sm text-zinc-600 dark:text-zinc-400">Hidden line: {run.hiddenLine}</p>}
+      <Card card={run.card} runId={null} />
+      <ol className="flex flex-col gap-1.5">
+        {run.steps.map((s) => (
+          <li key={s.seq} className="flex gap-3 text-sm">
+            <span className="w-6 shrink-0 text-right tabular-nums text-zinc-400">{s.seq}</span>
+            <span className="text-zinc-700 dark:text-zinc-300">{s.text}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

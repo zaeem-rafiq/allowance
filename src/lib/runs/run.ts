@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { CATALOG, RESTOCK_LIST, getProduct } from "@/lib/catalog/catalog";
 import { type AgentEnd, RunStopped, type ShoppingAgent, type StoreTools } from "@/lib/agent/port";
 import { type AttemptRow, checkout } from "@/lib/checkout/checkout";
-import type { Db } from "@/lib/db";
+import type { Db, Queryable } from "@/lib/db";
 import { formatUsd } from "@/lib/money/cents";
 import type { PayPalPort } from "@/lib/paypal/port";
 import { type ResultCard, composeCard } from "./card";
@@ -60,7 +60,7 @@ export function shoppingListText(): string {
   }).join("\n");
 }
 
-export async function createRun(db: Db, req: RunRequest, now: Date): Promise<string> {
+export async function createRun(db: Queryable, req: RunRequest, now: Date): Promise<string> {
   const runId = randomUUID();
   await db.query(
     "INSERT INTO runs (id, ledger_id, kind, hidden_line, status, created_at) VALUES ($1, $2, $3, $4, 'running', $5)",
