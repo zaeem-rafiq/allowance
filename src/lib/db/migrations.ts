@@ -96,4 +96,24 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `,
   },
+  {
+    id: "0002_disputes",
+    sql: `
+CREATE TABLE IF NOT EXISTS disputes (
+  id text PRIMARY KEY,
+  capture_id text,
+  attempt_id text REFERENCES attempts(id),
+  matched boolean NOT NULL DEFAULT false,
+  status text NOT NULL,
+  reason text,
+  first_seen_at timestamptz NOT NULL,
+  evidence_claimed_at timestamptz,
+  evidence_sent_at timestamptz,
+  evidence_error text,
+  raw_status_history jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS disputes_capture_idx ON disputes (capture_id);
+CREATE INDEX IF NOT EXISTS disputes_seen_idx ON disputes (first_seen_at);
+`,
+  },
 ];

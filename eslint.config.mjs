@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // The browser tests build into .next-test (playwright.config.ts sets ALLOWANCE_DIST_DIR).
     ".next-test/**",
+    // Claude Code keeps tooling and other sessions' worktrees here; it holds no project source.
+    ".claude/**",
   ]),
 ]);
 

@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { resetApp, signInAsOwner, steer } from "./helpers";
+import { openHome, resetApp, signInAsOwner, steer } from "./helpers";
 
 test("fills the evidence timeline when a dispute arrives", async ({ page, request }) => {
   await resetApp(request, { savedPayPal: true });
 
   // A real charge through the fake PayPal. The first charge after a reset is FAKE-CAPTURE-1.
-  await page.goto("/");
+  await openHome(page);
   await page.getByRole("button", { name: "Try a normal restock" }).click();
   await expect(page.getByTestId("result-card")).toContainText("PayPal charged $34.");
 
@@ -18,7 +18,7 @@ test("fills the evidence timeline when a dispute arrives", async ({ page, reques
   await page.goto("/disputes");
   await expect(page.getByRole("link", { name: /PP-D-TEST1/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Check PayPal for disputes" }).click();
-  await expect(page.getByRole("status")).toContainText("Checked PayPal. It lists 1 dispute. Allowance sent evidence for 1.");
+  await expect(page.getByText("Checked PayPal. It lists 1 dispute. Allowance sent evidence for 1.")).toBeVisible();
 
   await page.getByRole("link", { name: /PP-D-TEST1/ }).click();
   const timeline = page.getByTestId("dispute-timeline");
