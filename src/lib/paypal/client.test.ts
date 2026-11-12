@@ -314,6 +314,18 @@ describe("PayPal sandbox client: refusals and retries", () => {
     expect(await charge(client)).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
   });
 
+  it("reports unknown for a 401 on the repeat after a timeout, since it says nothing about the first request", async () => {
+    const { client } = setup({
+      orders: [
+        () => {
+          throw timeout();
+        },
+        () => failure(401, { name: "AUTHENTICATION_FAILURE" }),
+      ],
+    });
+    expect((await charge(client)).status).toBe("unknown");
+  });
+
   it("reports unknown for any 409, even with no readable body", async () => {
     const { client, calls } = setup({ orders: [() => new Response("<html>conflict</html>", { status: 409 })] });
     expect((await charge(client)).status).toBe("unknown");

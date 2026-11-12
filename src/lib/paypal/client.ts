@@ -232,8 +232,11 @@ export class PayPalSandboxClient implements PayPalPort {
             lastError = reason;
             continue;
           }
-          // A definite refusal is final even on a repeat: PayPal answers a repeated request ID
+          // A decline (400 or 422) is final even on a repeat: PayPal answers a repeated request ID
           // with the first request's own result, and a request still running is a 409 (above).
+          // Any other 4xx after a possible send (a 401 from a stale sign-in, say) says nothing
+          // about the first request, so the hold stays.
+          if (orderMaybeSent && err.status !== 400 && err.status !== 422) return { status: "unknown", reason };
           return { status: "refused", reason };
         }
         orderMaybeSent = true;

@@ -290,6 +290,8 @@ export async function applyChargeResult(db: Queryable, attempt: AttemptRow, resu
 /** An unknown charge settles by repeating the same request ID; the reservation stays until then. */
 export async function settleIfUnknown(db: Db, paypal: PayPalPort, attempt: AttemptRow, now: Date): Promise<AttemptRow> {
   if (attempt.state !== "unknown" && attempt.state !== "reserved") return attempt;
+  // Past PayPal's request-ID window a repeat could charge twice, so the amount stays held instead.
+  if (now.getTime() - new Date(attempt.created_at).getTime() >= SETTLE_REPEAT_WINDOW_MS) return attempt;
   const saved = await getSetting<SavedPayPal>(db, SAVED_PAYPAL_KEY);
   if (!saved) return attempt;
   // The first request may have reached PayPal, so a failure here never releases the hold.
@@ -300,6 +302,11 @@ export async function settleIfUnknown(db: Db, paypal: PayPalPort, attempt: Attem
 export const SETTLE_UNKNOWN_AFTER_MS = 30_000;
 /** A reserved charge older than this lost its PayPal call (for example a restart mid-request). */
 export const SETTLE_RESERVED_AFTER_MS = 2 * 60_000;
+/**
+ * PayPal remembers an Orders v2 request ID for 6 hours; a repeat after that is a new order that
+ * could charge twice. Open charges older than this are never repeated, and their amount stays held.
+ */
+export const SETTLE_REPEAT_WINDOW_MS = 5 * 60 * 60_000;
 
 /**
  * Settles a ledger's open charges on the visitor's next read (plan U5): unknown charges after
@@ -311,11 +318,13 @@ export async function settleOpenAttempts(db: Db, paypal: PayPalPort, ledgerId: s
   const rows = await db.query<AttemptRow>(
     `SELECT * FROM attempts WHERE ledger_id = $1
        AND ((state = 'unknown' AND created_at < $2) OR (state = 'reserved' AND created_at < $3))
+       AND created_at > $4
      ORDER BY created_at LIMIT 5`,
     [
       ledgerId,
       new Date(now.getTime() - SETTLE_UNKNOWN_AFTER_MS).toISOString(),
       new Date(now.getTime() - SETTLE_RESERVED_AFTER_MS).toISOString(),
+      new Date(now.getTime() - SETTLE_REPEAT_WINDOW_MS).toISOString(),
     ],
   );
   let settled = 0;

@@ -11,6 +11,7 @@ import {
   APPROVED_RULE,
   type AttemptRow,
   RESTOCK_DESCRIPTION,
+  SETTLE_REPEAT_WINDOW_MS,
   SETTLE_RESERVED_AFTER_MS,
   SETTLE_UNKNOWN_AFTER_MS,
   chargeDescription,
@@ -151,6 +152,25 @@ describe("settling open attempts on the visitor's next read", () => {
     expect(paypal.calls.charge).toBe(12);
     expect(await settleOpenAttempts(db, paypal, ledgerId, after(31_000))).toBe(0);
     expect(paypal.calls.charge).toBe(12);
+  });
+
+  it("never repeats an open attempt older than 5 hours, so it cannot charge twice, and keeps it held", async () => {
+    paypal.script = ["unknown"];
+    const id = await unknownAttempt();
+
+    expect(await settleOpenAttempts(db, paypal, ledgerId, after(SETTLE_REPEAT_WINDOW_MS))).toBe(0);
+    expect(paypal.calls.charge).toBe(1);
+    expect((await row(id)).state).toBe("unknown");
+    expect(await ledgerSpend(db, ledgerId, after(SETTLE_REPEAT_WINDOW_MS))).toEqual({ spentCents: 0, pendingCents: 3400 });
+
+    // A repeat of the same attempt ID (a retry) does not reach PayPal either.
+    const again = await go(LIST_CART, id, after(SETTLE_REPEAT_WINDOW_MS));
+    expect(again.attempt?.state).toBe("unknown");
+    expect(paypal.calls.charge).toBe(1);
+
+    // Just inside the window it still settles.
+    expect(await settleOpenAttempts(db, paypal, ledgerId, after(SETTLE_REPEAT_WINDOW_MS - 1))).toBe(1);
+    expect(paypal.calls.charge).toBe(2);
   });
 
   it("repeats the attempt's own ID as the request ID and the same description", async () => {
