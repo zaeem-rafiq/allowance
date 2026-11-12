@@ -1,5 +1,5 @@
 import { type Page, expect, test } from "@playwright/test";
-import { resetApp, steer } from "./helpers";
+import { openHome, resetApp, steer } from "./helpers";
 
 const card = (page: Page) => page.getByTestId("result-card");
 
@@ -19,7 +19,7 @@ async function skipTheAi(page: Page) {
 
 test("lists every attempt with its result and rule", async ({ page, request }) => {
   test.setTimeout(120_000);
-  await page.goto("/");
+  await openHome(page);
 
   // Three runs in one page, so they share one visitor cookie and one ledger.
   await skipTheAi(page);
@@ -67,7 +67,7 @@ test("lists every attempt with its result and rule", async ({ page, request }) =
 test("shows an empty log to a new visitor", async ({ page, browser }) => {
   test.setTimeout(120_000);
   // Visitor A has one attempt in their own log.
-  await page.goto("/");
+  await openHome(page);
   await skipTheAi(page);
   await page.goto("/log");
   await expect(dataRows(page)).toHaveCount(1, { timeout: 60_000 });

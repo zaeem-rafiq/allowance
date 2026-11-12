@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { resetApp } from "./helpers";
+import { openHome, resetApp } from "./helpers";
 
 test.beforeEach(async ({ request }) => {
   await resetApp(request, { savedPayPal: true });
 });
 
 test("opens a stored receipt from its link", async ({ page, browser }) => {
-  await page.goto("/");
+  await openHome(page);
   await page.getByRole("button", { name: "Try a normal restock" }).click();
   const link = page.getByRole("link", { name: "Open the receipt" });
   await expect(link).toBeVisible();

@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { paypalCalls, resetApp } from "./helpers";
+import { openHome, paypalCalls, resetApp } from "./helpers";
 
 test.beforeEach(async ({ request, page }) => {
   await resetApp(request, { savedPayPal: true });
-  await page.goto("/");
+  await openHome(page);
 });
 
 test("an item over the limit waits for approval and then charges", async ({ page, request }) => {

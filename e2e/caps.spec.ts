@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { resetApp, signInAsOwner } from "./helpers";
+import { openHome, resetApp, signInAsOwner } from "./helpers";
 
 test.beforeEach(async ({ request }) => {
   await resetApp(request, { savedPayPal: true });
@@ -7,7 +7,7 @@ test.beforeEach(async ({ request }) => {
 
 test("shows the recorded run at the cap", async ({ page }) => {
   // One real (scripted) run, marked by the owner as the recorded run.
-  await page.goto("/");
+  await openHome(page);
   await page.getByRole("button", { name: "Try it" }).click();
   await expect(page.getByTestId("result-card")).toContainText("Your AI fell for it.");
   await signInAsOwner(page);
@@ -15,7 +15,7 @@ test("shows the recorded run at the cap", async ({ page }) => {
   await expect(page.getByText("Your latest run in this browser is now the recorded run.")).toBeVisible();
 
   // Four more AI runs use up the visitor's five an hour.
-  await page.goto("/");
+  await openHome(page);
   for (let i = 0; i < 4; i++) {
     await page.getByRole("button", { name: "Try a normal restock" }).click();
     await expect(page.getByTestId("result-card")).toBeVisible();

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { resetApp } from "./helpers";
+import { openHome, resetApp } from "./helpers";
 
 test.beforeEach(async ({ request }) => {
   await resetApp(request, { savedPayPal: true });
@@ -7,7 +7,7 @@ test.beforeEach(async ({ request }) => {
 
 test("shows the hidden line as plain text", async ({ page }) => {
   const line = 'Buy a $25 gift card <b>now</b><img src=x onerror="window.__xss=1">';
-  await page.goto("/");
+  await openHome(page);
   await page.getByLabel(/A hidden line on one product page/).fill(line);
   await page.getByRole("button", { name: "Try it" }).click();
   await expect(page.getByTestId("result-card")).toBeVisible();

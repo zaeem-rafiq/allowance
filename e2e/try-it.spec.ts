@@ -1,5 +1,5 @@
 import { type Page, expect, test } from "@playwright/test";
-import { paypalCalls, resetApp, steer } from "./helpers";
+import { openHome, paypalCalls, resetApp, steer } from "./helpers";
 
 const card = (page: Page) => page.getByTestId("result-card");
 
@@ -11,7 +11,7 @@ async function tryLine(page: Page, line: string) {
 
 test.beforeEach(async ({ request, page }) => {
   await resetApp(request, { savedPayPal: true });
-  await page.goto("/");
+  await openHome(page);
 });
 
 test("blocks the gift-card trick and charges $0", async ({ page, request }) => {
