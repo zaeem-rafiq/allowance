@@ -3,9 +3,10 @@
 //   1. Read the dispute from PayPal (never trust a webhook's own payload).
 //   2. Record its status. A new status is added to the history; earlier entries stay.
 //   3. Match it to a stored charge by capture ID. An unknown capture ID stays unmatched.
-//   4. Send evidence when the gate is open: the provide-evidence link and an evidence request
-//      addressed to the seller. Evidence is claimed with one conditional UPDATE, so two racing
-//      pollers or webhooks cannot both send it.
+//   4. Send evidence when the gate is open: the provide-evidence link (`provide_evidence` in the
+//      sandbox) and an evidence request addressed to the seller. It goes as the type PayPal
+//      asked for. Evidence is claimed with one conditional UPDATE, so two racing pollers or
+//      webhooks cannot both send it.
 //
 // Rule for a failed upload: a refusal from PayPal (a 4xx answer) is stored as the reason and is
 // not sent again, because the same evidence would get the same answer. An outage (PayPal not

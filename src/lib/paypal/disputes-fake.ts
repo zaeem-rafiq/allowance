@@ -13,6 +13,11 @@ export interface FakeDisputeScript {
   refuseEvidence?: boolean;
   /** Defaults to `withEvidenceLink`. Set false for a link without a request for the seller. */
   requestedFromSeller?: boolean;
+  /**
+   * The evidence type PayPal asks the seller for. Defaults to PROOF_OF_FULFILLMENT, the type the
+   * sandbox asked for on a real dispute. Like the sandbox, the fake refuses any other type.
+   */
+  requestedEvidenceType?: string;
 }
 
 export const FAKE_VALID_SIGNATURE = "FAKE-VALID-SIGNATURE";
@@ -37,6 +42,10 @@ export function resetFakeDisputeCalls(): void {
   state.lastEvidence = null;
 }
 
+function requestedType(s: FakeDisputeScript): string {
+  return s.requestedEvidenceType ?? "PROOF_OF_FULFILLMENT";
+}
+
 function scripts(): FakeDisputeScript[] {
   return getTestHook<FakeDisputeScript[]>("disputes") ?? [];
 }
@@ -56,14 +65,16 @@ export class FakeDisputes implements DisputesPort {
       captureIds: [s.captureId],
       hasProvideEvidenceLink: s.withEvidenceLink,
       evidenceRequestedFromSeller: s.requestedFromSeller ?? s.withEvidenceLink,
-      requestedEvidenceType: (s.requestedFromSeller ?? s.withEvidenceLink) ? "PROOF_OF_FULFILLMENT" : null,
+      requestedEvidenceType: (s.requestedFromSeller ?? s.withEvidenceLink) ? requestedType(s) : null,
     };
   }
 
   async provideEvidence(id: string, evidence: EvidenceInput): Promise<EvidenceResult> {
     state.provideEvidenceCalls++;
     state.lastEvidence = { disputeId: id, evidence };
-    if (scripts().find((x) => x.id === id)?.refuseEvidence) return { ok: false, reason: "EVIDENCE_NOT_ACCEPTED" };
+    const s = scripts().find((x) => x.id === id);
+    if (s?.refuseEvidence) return { ok: false, reason: "EVIDENCE_NOT_ACCEPTED" };
+    if (s && evidence.evidenceType !== requestedType(s)) return { ok: false, reason: "EVIDENCE_TYPE_IS_NOT_ALLOWED" };
     return { ok: true };
   }
 

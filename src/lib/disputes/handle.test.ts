@@ -93,6 +93,13 @@ afterEach(async () => {
 });
 
 describe("sending evidence", () => {
+  it("sends the evidence type PayPal asked for, whatever it is", async () => {
+    await charge({ hiddenLine: HIDDEN });
+    setDisputes(script({ requestedEvidenceType: "PROOF_OF_REFUND" }));
+    expect((await handleDisputeEvent(db, port, { disputeId: "PP-D-1" }, clock)).outcome).toBe("evidence_sent");
+    expect(fakeDisputeCalls().lastEvidence!.evidence.evidenceType).toBe("PROOF_OF_REFUND");
+  });
+
   it("sends once, and a repeated event sends nothing more", async () => {
     const { attempt } = await charge({ hiddenLine: HIDDEN });
     expect(attempt.paypal?.captureId).toBe("FAKE-CAPTURE-1");

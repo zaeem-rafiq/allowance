@@ -20,7 +20,7 @@ export interface DisputeDetail {
   reason: string | null;
   /** Every `seller_transaction_id` PayPal lists for the dispute. For a capture this is the capture ID. */
   captureIds: string[];
-  /** The dispute carries the `provide-evidence` HATEOAS link. */
+  /** The dispute carries the provide-evidence HATEOAS link (`provide_evidence` in the sandbox). */
   hasProvideEvidenceLink: boolean;
   /** An `evidences` entry has `source: "REQUESTED_FROM_SELLER"`. */
   evidenceRequestedFromSeller: boolean;
@@ -63,12 +63,14 @@ export function canProvideEvidence(d: Pick<DisputeDetail, "hasProvideEvidenceLin
   return d.hasProvideEvidenceLink && d.evidenceRequestedFromSeller;
 }
 
-/** PayPal's upload types are jpg, jpeg, gif, png and pdf, so plain text must go up as a PDF. */
+const EVIDENCE_TYPE_PATTERN = /^[A-Z_]{1,64}$/;
+
 /** PayPal's evidence types are upper-case words joined by underscores; anything else becomes OTHER. */
 export function safeEvidenceType(type: string | null | undefined): string {
-  return type && /^[A-Z_]{1,64}$/.test(type) ? type : "OTHER";
+  return type && EVIDENCE_TYPE_PATTERN.test(type) ? type : "OTHER";
 }
 
+/** PayPal's upload types are jpg, jpeg, gif, png and pdf, so plain text must go up as a PDF. */
 export const EVIDENCE_CONTENT_TYPE = "application/pdf";
 
 /** ASCII only: the PDF uses a built-in font, and PayPal's notes pattern is plain text. */
@@ -206,7 +208,8 @@ export function parseDetail(json: unknown): DisputeDetail {
   const hasProvideEvidenceLink = asArray(json.links).some((l) => isRecord(l) && (l.rel === "provide_evidence" || l.rel === "provide-evidence"));
   const requests = asArray(json.evidences).filter((e): e is Record<string, unknown> => isRecord(e) && e.source === "REQUESTED_FROM_SELLER");
   const evidenceRequestedFromSeller = requests.length > 0;
-  const requestedType = requests.map((e) => str(e.evidence_type)).find((t) => t !== null) ?? null;
+  // The first well-formed type PayPal asked for. A malformed one is skipped, not sent as OTHER.
+  const requestedType = requests.map((e) => str(e.evidence_type)).find((t) => t !== null && EVIDENCE_TYPE_PATTERN.test(t)) ?? null;
   return {
     id,
     status,
@@ -214,7 +217,7 @@ export function parseDetail(json: unknown): DisputeDetail {
     captureIds,
     hasProvideEvidenceLink,
     evidenceRequestedFromSeller,
-    requestedEvidenceType: requestedType === null ? null : safeEvidenceType(requestedType),
+    requestedEvidenceType: requestedType,
   };
 }
 

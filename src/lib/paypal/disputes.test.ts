@@ -26,7 +26,7 @@ describe("reading PayPal's dispute answers", () => {
     expect(parseSummaries({})).toEqual([]);
   });
 
-  it("reads the capture IDs, the provide-evidence link and the request for the seller", () => {
+  it("reads the capture IDs, the provide-evidence link as PayPal's docs spell it, and the request for the seller", () => {
     const d = parseDetail({
       dispute_id: "PP-D-1",
       status: "WAITING_FOR_SELLER_RESPONSE",
@@ -64,7 +64,17 @@ describe("reading PayPal's dispute answers", () => {
     expect(d.requestedEvidenceType).toBe("PROOF_OF_FULFILLMENT");
     expect(canProvideEvidence(d)).toBe(true);
     const odd = parseDetail({ ...d, dispute_id: "PP-D-2", status: "OPEN", evidences: [{ evidence_type: "x; drop", source: "REQUESTED_FROM_SELLER" }] });
-    expect(odd.requestedEvidenceType).toBe("OTHER");
+    expect(odd.requestedEvidenceType).toBeNull();
+    // A malformed request is skipped in favor of a well-formed one.
+    const mixed = parseDetail({
+      dispute_id: "PP-D-3",
+      status: "OPEN",
+      evidences: [
+        { evidence_type: "bad type", source: "REQUESTED_FROM_SELLER" },
+        { evidence_type: "PROOF_OF_FULFILLMENT", source: "REQUESTED_FROM_SELLER" },
+      ],
+    });
+    expect(mixed.requestedEvidenceType).toBe("PROOF_OF_FULFILLMENT");
   });
 
   it("needs both the link and the request: either one alone is not enough", () => {
