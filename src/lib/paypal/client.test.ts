@@ -314,6 +314,20 @@ describe("PayPal sandbox client: refusals and retries", () => {
     expect(await charge(client)).toEqual({ status: "unknown", reason: "INSTRUMENT_DECLINED" });
   });
 
+  it("reports unknown for a first-request 409 PREVIOUS_REQUEST_IN_PROGRESS (a double click racing the same request ID)", async () => {
+    const { client } = setup({
+      orders: [() => failure(409, { name: "RESOURCE_CONFLICT", details: [{ issue: "PREVIOUS_REQUEST_IN_PROGRESS" }] })],
+    });
+    expect(await charge(client)).toEqual({ status: "unknown", reason: "PREVIOUS_REQUEST_IN_PROGRESS" });
+  });
+
+  it("reports unknown, not refused, when a repeat that settles an earlier attempt cannot get a token", async () => {
+    const { client, calls } = setup({ token: () => failure(503, {}) });
+    const result = await client.charge({ vaultId: "VAULT-1", requestId: "attempt-1", items: [{ name: "Dish soap", quantity: 1, unitCents: 400 }], description: "d", repeat: true });
+    expect(result.status).toBe("unknown");
+    expect(calls.order).toHaveLength(0);
+  });
+
   it("still refuses a first-request refusal, when no order can have gone through", async () => {
     const { client } = setup({ orders: [() => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] })] });
     expect(await charge(client)).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });

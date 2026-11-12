@@ -174,7 +174,7 @@ export class PayPalSandboxClient implements PayPalPort {
     return { status: "refused", reason: `ORDER_${String(json.status ?? "UNKNOWN")}`, orderId };
   }
 
-  async charge(opts: { vaultId: string; requestId: string; items: ChargeItem[]; description: string }): Promise<ChargeResult> {
+  async charge(opts: { vaultId: string; requestId: string; items: ChargeItem[]; description: string; repeat?: boolean }): Promise<ChargeResult> {
     const totalCents = opts.items.reduce((sum, i) => sum + i.unitCents * i.quantity, 0);
     const body = {
       intent: "CAPTURE",
@@ -199,7 +199,8 @@ export class PayPalSandboxClient implements PayPalPort {
     let lastError = "PayPal timed out";
     // Whether an order request may have reached PayPal. Until one has, a failure means nothing
     // was charged; after one has, only PayPal's answer to the same request ID can say.
-    let orderMaybeSent = false;
+    // A repeat that settles an earlier attempt starts out as possibly sent.
+    let orderMaybeSent = opts.repeat === true;
     // One retry with the same request ID: a timeout, a 5xx or a 429 may hide a charge that
     // already happened, and the repeat returns that same order instead of a second charge.
     for (let attempt = 0; attempt < 2; attempt++) {

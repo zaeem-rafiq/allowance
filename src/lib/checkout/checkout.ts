@@ -240,6 +240,7 @@ export async function chargeAttempt(
   attempt: AttemptRow,
   vaultId: string,
   now: Date,
+  opts: { repeat?: boolean } = {},
 ): Promise<AttemptRow> {
   const description = chargeDescription(attempt);
   const verdict = attempt.verdict as Extract<Verdict, { decision: "allow" }>;
@@ -248,6 +249,7 @@ export async function chargeAttempt(
     requestId: attempt.id,
     items: verdict.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitCents: l.unitPriceCents })),
     description,
+    repeat: opts.repeat === true,
   });
   return applyChargeResult(db, attempt, result, now);
 }
@@ -290,7 +292,8 @@ export async function settleIfUnknown(db: Db, paypal: PayPalPort, attempt: Attem
   if (attempt.state !== "unknown" && attempt.state !== "reserved") return attempt;
   const saved = await getSetting<SavedPayPal>(db, SAVED_PAYPAL_KEY);
   if (!saved) return attempt;
-  return chargeAttempt(db, paypal, attempt, saved.paymentTokenId, now);
+  // The first request may have reached PayPal, so a failure here never releases the hold.
+  return chargeAttempt(db, paypal, attempt, saved.paymentTokenId, now, { repeat: true });
 }
 
 /** An unknown charge waits this long before a repeat, so it never overlaps the first request. */
