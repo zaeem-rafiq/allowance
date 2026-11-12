@@ -38,7 +38,7 @@ Read `WIN_CONDITION.md` before every scoping decision and every hand-over. The a
 ## Where it runs
 
 - Production: Render web service `allowance`, at https://allowance-colm.onrender.com.
-- Previews: every pull request gets a Render preview link.
+- Previews: off since November 12, 2026. A Render preview copies every production setting, keys and database included, and the repository is public, so pull requests get no preview link.
 
 ## Authorized workflow
 
