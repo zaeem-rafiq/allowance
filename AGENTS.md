@@ -6,7 +6,7 @@ The owner cannot read or review code. Follow the owner's Global Agent Rules and 
 
 ## Status
 
-building · Live link: not live yet · Started: 2026-11-08
+live · Live link: https://allowance-colm.onrender.com · Started: 2026-11-08 · Live since: 2026-11-12
 
 ## Win condition
 
