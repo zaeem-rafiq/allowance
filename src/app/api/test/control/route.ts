@@ -3,7 +3,8 @@ import { connection } from "next/server";
 import { getDb, resetDbForTests } from "@/lib/db";
 import { isTestMode } from "@/lib/mode";
 import type { ScriptedCharge } from "@/lib/paypal/fake";
-import { getFakePayPal, setTestClock } from "@/lib/ports";
+import { recordAiSpend } from "@/lib/limits/ai-budget";
+import { getFakePayPal, now, setTestClock } from "@/lib/ports";
 import { SAVED_PAYPAL_KEY, setSetting } from "@/lib/settings";
 import { resetTestHooks, setTestHooks } from "@/lib/test-hooks";
 
@@ -21,6 +22,8 @@ export async function POST(request: Request) {
     paypal?: ScriptedCharge[];
     hooks?: Record<string, unknown>;
     savedPayPal?: boolean;
+    /** Adds this much AI spend to today's total, in millionths of a dollar. */
+    aiSpendMicroUsd?: number;
   };
   if (body.reset) {
     await resetDbForTests();
@@ -31,6 +34,9 @@ export async function POST(request: Request) {
   if (body.clock !== undefined) setTestClock(body.clock ? new Date(body.clock) : null);
   if (body.paypal) getFakePayPal().script = [...body.paypal];
   if (body.hooks) setTestHooks(body.hooks);
+  if (typeof body.aiSpendMicroUsd === "number") {
+    await recordAiSpend(await getDb(), now(), body.aiSpendMicroUsd);
+  }
   if (body.savedPayPal) {
     await setSetting(await getDb(), SAVED_PAYPAL_KEY, {
       paymentTokenId: "FAKE-VAULT-SEEDED",

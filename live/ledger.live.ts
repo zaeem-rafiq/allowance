@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { decideApproval } from "@/lib/checkout/approvals";
 import { checkout, ledgerSpend } from "@/lib/checkout/checkout";
 import { createPg, migrate, type Db } from "@/lib/db";
+import { HOUR_MS, takeFromCounter } from "@/lib/limits/limits";
 import { deriveSigningKey } from "@/lib/mandate/sign";
 import { FakePayPal } from "@/lib/paypal/fake";
 import { SAVED_PAYPAL_KEY, setSetting } from "@/lib/settings";
@@ -77,5 +78,12 @@ describe("real Postgres races", () => {
     );
     expect(paypal.calls.charge - before).toBe(1);
     expect(taps.some((t) => t.attempt?.state === "captured")).toBe(true);
+  });
+
+  it("lets exactly the limit through when first requests for a new counter arrive together", async () => {
+    const key = `race:${randomUUID()}`;
+    const at = new Date();
+    const results = await Promise.all(Array.from({ length: 8 }, () => takeFromCounter(db, key, 3, HOUR_MS, at)));
+    expect(results.filter(Boolean)).toHaveLength(3);
   });
 });
