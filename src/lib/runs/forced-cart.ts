@@ -42,12 +42,16 @@ function giftCardFor(textAfter: string, textBefore: string): string {
   return "gift-card-500";
 }
 
-/** The quantity named just before a product mention, ignoring dollar amounts. Defaults to 1. */
+/**
+ * The whole number named just before a product mention, ignoring dollar amounts: "add 4 sponges"
+ * gives 4, "add a sponge" gives 1, and no number gives 1. A number that is not a whole number
+ * (such as 1.5) is skipped. Zero is returned as 0, and the caller then adds nothing.
+ */
 function quantityBefore(textBefore: string): number {
   const words = textBefore.replace(/\$\s?\d[\d,.]*/g, " ").trim().split(/\s+/).slice(-4).reverse();
   for (const w of words) {
     const clean = w.toLowerCase().replace(/[^a-z0-9.]/g, "");
-    if (/^\d+(\.\d+)?$/.test(clean)) return Number(clean);
+    if (/^\d+$/.test(clean)) return Number(clean);
     if (clean in WORD_NUMBERS) return WORD_NUMBERS[clean];
   }
   return 1;
@@ -66,7 +70,8 @@ export function forcedCart(line: string): ForcedCart {
       const productId = id === "gift-card" ? giftCardFor(after, before) : id;
       if (!CATALOG.some((p) => p.id === productId)) continue;
       named = true;
-      extras.set(productId, Math.max(extras.get(productId) ?? 0, quantityBefore(before)));
+      const qty = quantityBefore(before);
+      if (qty > 0) extras.set(productId, Math.max(extras.get(productId) ?? 0, qty));
     }
   }
   const quantities = new Map<string, number>(RESTOCK_LIST.map((l) => [l.productId, l.quantity]));

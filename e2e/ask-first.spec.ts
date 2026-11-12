@@ -26,3 +26,25 @@ test("declining charges $0", async ({ page, request }) => {
   await expect(page.getByTestId("result-card")).toContainText("You declined. PayPal charged $0.");
   expect((await paypalCalls(request)).charge).toBe(0);
 });
+
+test("keeps the run buttons waiting while an approval is open", async ({ page }) => {
+  const runButtons = [
+    page.getByRole("button", { name: "Try it", exact: true }),
+    page.getByRole("button", { name: "Try a normal restock" }),
+    page.getByRole("button", { name: "Try a restock with a $52 item" }),
+    page.getByRole("button", { name: "Skip the AI: send the cart your line asked for" }),
+  ];
+
+  // Wait for the run's response to finish, so the buttons are held by the open approval and not by a run still in flight.
+  const streamEnded = page.waitForEvent("requestfinished", (r) => r.url().endsWith("/api/runs"));
+  await page.getByRole("button", { name: "Try a restock with a $52 item" }).click();
+  const dialog = page.getByRole("dialog", { name: "Approval request" });
+  await expect(dialog).toBeVisible();
+  await streamEnded;
+  await page.waitForTimeout(500);
+  for (const button of runButtons) await expect(button).toBeDisabled();
+
+  await dialog.getByRole("button", { name: "Decline" }).click();
+  await expect(page.getByTestId("result-card")).toContainText("You declined. PayPal charged $0.");
+  for (const button of runButtons) await expect(button).toBeEnabled();
+});

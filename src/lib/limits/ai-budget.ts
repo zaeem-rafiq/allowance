@@ -23,7 +23,8 @@ export function inputTokensFrom(usage: {
 
 /** Cost in millionths of a dollar, rounded up. Unknown models (the scripted fakes) cost nothing. */
 export function costMicroUsd(model: string, inputTokens: number, outputTokens: number): number {
-  const price = PRICES[model];
+  // Own keys only, so a name like "constructor" is an unknown model, not a prototype member.
+  const price = Object.hasOwn(PRICES, model) ? PRICES[model] : undefined;
   if (!price) return 0;
   return Math.ceil(inputTokens * price.input + outputTokens * price.output);
 }
