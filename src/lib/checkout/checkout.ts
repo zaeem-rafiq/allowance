@@ -78,6 +78,7 @@ function blockMessage(v: Extract<Verdict, { decision: "block" }>): string {
 }
 
 function refusedMessage(reason: string): string {
+  if (reason === "PAYPAL_UNREACHABLE") return "Your rule allowed this, but PayPal could not be reached, so nothing was charged.";
   if (/VAULT|PAYMENT_SOURCE|TOKEN|INVALID_RESOURCE_ID|PAYER_ACTION_REQUIRED|AGREEMENT/.test(reason)) {
     return "PayPal did not accept the saved account, so nothing was charged.";
   }
@@ -217,8 +218,19 @@ export async function checkout(db: Db, paypal: PayPalPort, input: CheckoutInput,
   if (attempt.state !== "reserved" || !vaultId) return { attempt, error: null, message: attempt.message ?? "" };
 
   // PayPal is called only after the reservation is committed.
-  const finalAttempt = await chargeAttempt(db, paypal, attempt, vaultId, RESTOCK_DESCRIPTION, now);
+  const finalAttempt = await chargeAttempt(db, paypal, attempt, vaultId, now);
   return { attempt: finalAttempt, error: null, message: finalAttempt.message ?? "" };
+}
+
+/** Rule text an attempt carries once the parent approved it (R24). */
+export const APPROVED_RULE = "approved by you";
+
+/**
+ * The description PayPal sees, derived from the attempt itself, so a repeat of the same request
+ * ID (settling an unknown charge) always sends the same body as the first request.
+ */
+export function chargeDescription(attempt: AttemptRow): string {
+  return attempt.rule === APPROVED_RULE ? `${RESTOCK_DESCRIPTION}, approved by the parent` : RESTOCK_DESCRIPTION;
 }
 
 /** Charges a reserved attempt's cart with its own attempt ID as the request ID, then records the result. */
@@ -227,9 +239,9 @@ export async function chargeAttempt(
   paypal: PayPalPort,
   attempt: AttemptRow,
   vaultId: string,
-  description: string,
   now: Date,
 ): Promise<AttemptRow> {
+  const description = chargeDescription(attempt);
   const verdict = attempt.verdict as Extract<Verdict, { decision: "allow" }>;
   const result = await paypal.charge({
     vaultId,
@@ -278,7 +290,41 @@ export async function settleIfUnknown(db: Db, paypal: PayPalPort, attempt: Attem
   if (attempt.state !== "unknown" && attempt.state !== "reserved") return attempt;
   const saved = await getSetting<SavedPayPal>(db, SAVED_PAYPAL_KEY);
   if (!saved) return attempt;
-  return chargeAttempt(db, paypal, attempt, saved.paymentTokenId, RESTOCK_DESCRIPTION, now);
+  return chargeAttempt(db, paypal, attempt, saved.paymentTokenId, now);
+}
+
+/** An unknown charge waits this long before a repeat, so it never overlaps the first request. */
+export const SETTLE_UNKNOWN_AFTER_MS = 30_000;
+/** A reserved charge older than this lost its PayPal call (for example a restart mid-request). */
+export const SETTLE_RESERVED_AFTER_MS = 2 * 60_000;
+
+/**
+ * Settles a ledger's open charges on the visitor's next read (plan U5): unknown charges after
+ * 30 seconds, and reserved charges whose PayPal call was lost after 2 minutes. Each repeats its
+ * own attempt ID as PayPal's request ID, so a charge that already happened is not made again.
+ * Best effort: a failure leaves the attempt open and its amount held.
+ */
+export async function settleOpenAttempts(db: Db, paypal: PayPalPort, ledgerId: string, now: Date): Promise<number> {
+  const rows = await db.query<AttemptRow>(
+    `SELECT * FROM attempts WHERE ledger_id = $1
+       AND ((state = 'unknown' AND created_at < $2) OR (state = 'reserved' AND created_at < $3))
+     ORDER BY created_at LIMIT 5`,
+    [
+      ledgerId,
+      new Date(now.getTime() - SETTLE_UNKNOWN_AFTER_MS).toISOString(),
+      new Date(now.getTime() - SETTLE_RESERVED_AFTER_MS).toISOString(),
+    ],
+  );
+  let settled = 0;
+  for (const attempt of rows) {
+    try {
+      const after = await settleIfUnknown(db, paypal, attempt, now);
+      if (after.state !== "unknown" && after.state !== "reserved") settled++;
+    } catch {
+      // Leave it open; the next read tries again.
+    }
+  }
+  return settled;
 }
 
 export async function findAttemptByReceipt(q: Queryable, receiptId: string): Promise<AttemptRow | null> {

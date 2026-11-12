@@ -1,6 +1,7 @@
 // Starts a run and streams its steps as they are stored (KTD10), one JSON object per line.
 import { getAgent } from "@/lib/agent";
 import { CANNOT_CHECK } from "@/lib/checkout/checkout";
+import { settleForLedger } from "@/lib/checkout/settle-on-read";
 import { getDb } from "@/lib/db";
 import { aiBudgetState, costMicroUsd, recordAiSpend } from "@/lib/limits/ai-budget";
 import { CAPS, HOUR_MS, addressKey, clientAddress, runInProgress, takeFromCounter } from "@/lib/limits/limits";
@@ -50,6 +51,8 @@ export async function POST(request: Request) {
   } catch {
     return Response.json({ error: CANNOT_CHECK }, { status: 503 });
   }
+  // Settle this visitor's unknown or stuck charges before a new run is checked against the week.
+  await settleForLedger(db, visitor.ledgerId);
 
   // Caps (R22): one run at a time, checkout actions per address, and for AI runs the visitor
   // and address caps and the AI budget. A counter that cannot be read fails closed (R15).
@@ -103,6 +106,10 @@ export async function POST(request: Request) {
         );
         send({ type: "done", runId, card: result.card });
       } catch {
+        // Mark the run finished, so the visitor is not refused as "already in progress" for 90 seconds.
+        await db
+          .query("UPDATE runs SET status = 'failed', finished_at = $2 WHERE id = $1 AND status = 'running'", [runId, now().toISOString()])
+          .catch(() => {});
         send({
           type: "done",
           runId,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { SpendLog } from "@/components/spend-log";
 import { getDb } from "@/lib/db";
+import { settleForVisitor } from "@/lib/checkout/settle-on-read";
 import { type LogRow, getSpendLog } from "@/lib/log/spend-log";
 import { VISITOR_COOKIE } from "@/lib/visitor/ledger";
 
@@ -35,7 +36,9 @@ async function LogTable() {
   const cookie = (await cookies()).get(VISITOR_COOKIE)?.value;
   let rows: LogRow[];
   try {
-    rows = await getSpendLog(await getDb(), cookie);
+    const db = await getDb();
+    await settleForVisitor(db, cookie);
+    rows = await getSpendLog(db, cookie);
   } catch {
     return <p className="text-zinc-600 dark:text-zinc-400">The log could not be loaded. Try again in a moment.</p>;
   }

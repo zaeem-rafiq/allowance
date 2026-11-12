@@ -8,7 +8,12 @@ export function readCookie(request: Request, name: string): string | undefined {
   const header = request.headers.get("cookie") ?? "";
   for (const part of header.split(";")) {
     const [k, ...v] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(v.join("="));
+    if (k !== name) continue;
+    try {
+      return decodeURIComponent(v.join("="));
+    } catch {
+      return undefined; // A cookie that cannot be decoded owns no ledger.
+    }
   }
   return undefined;
 }

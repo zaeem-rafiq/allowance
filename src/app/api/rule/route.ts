@@ -59,6 +59,23 @@ export async function POST(request: Request) {
     return forbidden("Only the owner can change the demo parent's rule.");
   }
 
+  // The address cap comes first for visitors, so requests without a cookie cannot create
+  // ledgers and mandate versions without limit (as in /api/runs).
+  if (target === "mine") {
+    const secret = getSecret("MANDATE_SIGNING_KEY");
+    if (!secret) return reply({ error: UNAVAILABLE }, 503);
+    try {
+      const db = await getDb();
+      const at = now();
+      const allowed = await db.transaction((tx) =>
+        takeFromCounter(tx, `rule:addr:${addressKey(clientAddress(request), secret, at)}`, CAPS.addressRuleCalls, HOUR_MS, at),
+      );
+      if (!allowed) return reply({ error: TRIES_USED }, 429);
+    } catch {
+      return reply({ error: UNAVAILABLE }, 503);
+    }
+  }
+
   if (body.action === "compile") return compile(request, text, target);
   if (body.action === "sign") return sign(request, text, target, body);
   return reply({ error: "Unknown action." }, 400);
@@ -141,8 +158,12 @@ async function sign(request: Request, text: string, target: Target, body: Record
     const row = await db.transaction(async (tx) => {
       if (target === "demo") await ensureDemoLedger(tx, secret, at);
       await tx.query("SELECT id FROM ledgers WHERE id = $1 FOR UPDATE", [ledgerId]);
+      if (target === "mine" && !(await takeFromCounter(tx, `sign:ledger:${ledgerId}`, CAPS.visitorSigns, HOUR_MS, at))) {
+        return null;
+      }
       return insertMandateVersion(tx, ledgerId, signed, at);
     });
+    if (!row) return reply({ error: TRIES_USED }, 429, cookie);
     return reply(
       {
         target,

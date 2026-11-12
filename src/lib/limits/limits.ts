@@ -16,6 +16,10 @@ export const CAPS = {
   visitorCompiles: 3,
   /** Rule compiles per address per hour. */
   addressCompiles: 18,
+  /** Rule-writer requests (read or sign) per address per hour, taken before a visitor ledger is made. */
+  addressRuleCalls: 60,
+  /** Signed rule versions per visitor per hour. */
+  visitorSigns: 10,
 } as const;
 
 /**
@@ -29,23 +33,19 @@ export async function takeFromCounter(
   windowMs: number,
   now: Date,
 ): Promise<boolean> {
-  const rows = await q.query<{ count: number; window_start: string }>(
-    "SELECT count, window_start FROM counters WHERE key = $1 FOR UPDATE",
-    [key],
+  // One atomic statement, so concurrent first requests for a new key cannot all slip through:
+  // a new key starts at 1, an expired window restarts at 1, and otherwise the count grows only
+  // while it is under the limit. No row back means the cap is reached.
+  const rows = await q.query<{ count: number }>(
+    `INSERT INTO counters (key, count, window_start) VALUES ($1, 1, $2)
+     ON CONFLICT (key) DO UPDATE SET
+       count = CASE WHEN counters.window_start <= $3 THEN 1 ELSE counters.count + 1 END,
+       window_start = CASE WHEN counters.window_start <= $3 THEN EXCLUDED.window_start ELSE counters.window_start END
+     WHERE counters.window_start <= $3 OR counters.count < $4
+     RETURNING count`,
+    [key, now.toISOString(), new Date(now.getTime() - windowMs).toISOString(), limit],
   );
-  const row = rows[0];
-  const expired = !row || now.getTime() - new Date(row.window_start).getTime() >= windowMs;
-  if (expired) {
-    await q.query(
-      `INSERT INTO counters (key, count, window_start) VALUES ($1, 1, $2)
-       ON CONFLICT (key) DO UPDATE SET count = 1, window_start = EXCLUDED.window_start`,
-      [key, now.toISOString()],
-    );
-    return limit >= 1;
-  }
-  if (row.count >= limit) return false;
-  await q.query("UPDATE counters SET count = count + 1 WHERE key = $1", [key]);
-  return true;
+  return rows.length > 0 && limit >= 1;
 }
 
 /**

@@ -164,9 +164,10 @@ export class PayPalSandboxClient implements PayPalPort {
         at: String(cap.create_time ?? new Date(this.now()).toISOString()),
       };
     }
-    if (cap && (cap.status === "PENDING" || json.status === "PAYER_ACTION_REQUIRED")) {
-      return { status: "refused", reason: json.status === "PAYER_ACTION_REQUIRED" ? "PAYER_ACTION_REQUIRED" : "CAPTURE_PENDING", orderId };
-    }
+    // A pending capture may still complete, so it is not "nothing charged": keep the hold and
+    // settle it later by repeating the same request ID.
+    if (cap && cap.status === "PENDING") return { status: "unknown", reason: "CAPTURE_PENDING" };
+    if (json.status === "PAYER_ACTION_REQUIRED") return { status: "refused", reason: "PAYER_ACTION_REQUIRED", orderId };
     if (cap && (cap.status === "DECLINED" || cap.status === "FAILED")) {
       return { status: "refused", reason: `CAPTURE_${cap.status}`, orderId };
     }
@@ -196,30 +197,41 @@ export class PayPalSandboxClient implements PayPalPort {
       payment_source: { paypal: { vault_id: opts.vaultId } },
     };
     let lastError = "PayPal timed out";
+    // Whether an order request may have reached PayPal. Until one has, a failure means nothing
+    // was charged; after one has, only PayPal's answer to the same request ID can say.
+    let orderMaybeSent = false;
     // One retry with the same request ID: a timeout, a 5xx or a 429 may hide a charge that
     // already happened, and the repeat returns that same order instead of a second charge.
     for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await this.accessToken();
+      } catch {
+        if (!orderMaybeSent) return { status: "refused", reason: "PAYPAL_UNREACHABLE" };
+        lastError = "PAYPAL_UNREACHABLE";
+        continue;
+      }
       try {
         const json = await this.call("POST", "/v2/checkout/orders", body, opts.requestId);
         return this.parseOrder(json);
       } catch (err) {
         if (err instanceof PayPalHttpError) {
+          const reason = err.status === 429 ? "RATE_LIMITED" : plainReason(err.status, err.body);
+          // The same request ID still being processed: the first request may yet capture.
+          if (/DUPLICATE/.test(reason)) return { status: "unknown", reason };
           if (err.status === 429) {
-            lastError = "RATE_LIMITED";
+            lastError = reason;
             if (attempt === 0) continue;
-            return { status: "refused", reason: "RATE_LIMITED" };
+            return orderMaybeSent ? { status: "unknown", reason } : { status: "refused", reason };
           }
           if (err.status >= 500) {
-            lastError = plainReason(err.status, err.body);
+            orderMaybeSent = true;
+            lastError = reason;
             continue;
           }
-          return { status: "refused", reason: plainReason(err.status, err.body) };
+          return { status: "refused", reason };
         }
-        if (err instanceof PayPalTimeoutError) {
-          lastError = err.message;
-          continue;
-        }
-        lastError = "PAYPAL_ERROR";
+        orderMaybeSent = true;
+        lastError = err instanceof PayPalTimeoutError ? err.message : "PAYPAL_ERROR";
       }
     }
     return { status: "unknown", reason: lastError };

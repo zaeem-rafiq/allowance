@@ -33,8 +33,12 @@ export function TryIt() {
       : `Sends ${describeExtras(f.cart)}.`;
   }, [line]);
 
+  // While an ask-first request waits for Approve or Decline, a new run would leave its held
+  // amount orphaned, so the run buttons wait for the decision.
+  const approvalOpen = card?.approval != null;
+
   async function start(kind: RunKind) {
-    if (inFlight.current) return;
+    if (inFlight.current || approvalOpen) return;
     if ((kind === "agent" || kind === "skip") && (empty || tooLong)) return;
     inFlight.current = true;
     setRunning(kind);
@@ -105,7 +109,7 @@ export function TryIt() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="submit"
-            disabled={!hydrated || running !== null || empty || tooLong}
+            disabled={!hydrated || approvalOpen || running !== null || empty || tooLong}
             className="rounded-xl bg-zinc-900 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             {running === "agent" ? "Running…" : "Try it"}
@@ -121,7 +125,7 @@ export function TryIt() {
           <button
             type="button"
             onClick={() => void start("restock")}
-            disabled={!hydrated || running !== null}
+            disabled={!hydrated || approvalOpen || running !== null}
             className="self-start text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
           >
             Try a normal restock
@@ -129,7 +133,7 @@ export function TryIt() {
           <button
             type="button"
             onClick={() => void start("ask_first")}
-            disabled={!hydrated || running !== null}
+            disabled={!hydrated || approvalOpen || running !== null}
             className="self-start text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
           >
             Try a restock with a $52 item
@@ -137,7 +141,7 @@ export function TryIt() {
           <button
             type="button"
             onClick={() => void start("skip")}
-            disabled={!hydrated || running !== null || empty || tooLong}
+            disabled={!hydrated || approvalOpen || running !== null || empty || tooLong}
             className="self-start text-left text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
           >
             Skip the AI: send the cart your line asked for
@@ -160,7 +164,7 @@ export function TryIt() {
             <p className="text-lg font-semibold">{error}</p>
           </div>
         ) : card ? (
-          <Card card={card} runId={runId} onDecided={setCard} onSkip={running ? undefined : () => void start("skip")} />
+          <Card card={card} runId={runId} onDecided={setCard} onSkip={running || approvalOpen ? undefined : () => void start("skip")} />
         ) : running ? (
           <div className="rounded-2xl border border-dashed border-zinc-300 p-5 text-zinc-500 dark:border-zinc-700">
             {running === "skip" ? "Sending the cart to checkout…" : "The AI is shopping. Its steps appear below as they happen."}
@@ -246,6 +250,9 @@ const TONES: Record<ResultCard["tone"], string> = {
   neutral: "border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100",
 };
 
+const DROPPED =
+  "The connection dropped, so this page cannot tell whether PayPal was charged. Tap Approve again to see the result: it can only charge once.";
+
 function ApprovalCard({ approval, onDecided }: { approval: NonNullable<ResultCard["approval"]>; onDecided: (c: ResultCard) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -261,9 +268,9 @@ function ApprovalCard({ approval, onDecided }: { approval: NonNullable<ResultCar
       });
       const body = await res.json().catch(() => null);
       if (res.ok && body?.card) onDecided(body.card);
-      else setError(body?.error ?? "That did not go through. Nothing was charged.");
+      else setError(body?.error ?? DROPPED);
     } catch {
-      setError("That did not go through. Nothing was charged.");
+      setError(DROPPED);
     } finally {
       setBusy(false);
     }

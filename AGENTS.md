@@ -15,8 +15,8 @@ Read `WIN_CONDITION.md` before every scoping decision and every hand-over. The a
 ## Building blocks
 
 - Next.js and Tailwind, hosted on Render as a web service. Render Postgres (`allowance-db`, free plan, Oregon) for the database, reached only from Render. Local development and the tests use PGlite, an in-process Postgres.
-- PayPal sandbox: Payment Method Tokens v3, Orders v2, Disputes API, webhooks, JavaScript SDK v6, `@paypal/agent-toolkit`.
-- Claude through the Anthropic API. Arize for AI tracing. AG Grid Community for the spend log.
+- PayPal sandbox, direct REST calls: Payment Method Tokens v3 (save PayPal once, hosted approval link), Orders v2 (charge the saved account), Disputes API (evidence), and a webhook with signature verification. Not used: JavaScript SDK v6 and `@paypal/agent-toolkit` (the plan records why).
+- Claude through the Anthropic API: Haiku 5.5 runs the shopping agent, Sonnet 5.5 compiles the rule. AG Grid Community for the spend log. Arize tracing is not built yet; the `ARIZE_*` settings are read by nothing.
 
 ## Commands
 
