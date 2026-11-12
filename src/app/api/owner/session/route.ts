@@ -1,7 +1,10 @@
 // Owner sign-in (R21, KTD11). A plain form posts the secret here.
 import { NextResponse } from "next/server";
 import { forbidden, isSameOrigin, siteOrigin, shouldUseSecureCookies } from "@/lib/http";
+import { getDb } from "@/lib/db";
+import { CAPS, HOUR_MS, addressKey, clientAddress, takeFromCounter } from "@/lib/limits/limits";
 import { now } from "@/lib/ports";
+import { getSecret } from "@/lib/secrets";
 import {
   OWNER_COOKIE,
   OWNER_SESSION_MAX_AGE_SECONDS,
@@ -14,6 +17,19 @@ export async function POST(request: Request) {
   if (!isSameOrigin(request)) return forbidden();
   const origin = siteOrigin(request);
   if (!ownerConfigured()) return NextResponse.redirect(`${origin}/owner?error=not-configured`, 303);
+  // Sign-in attempts are capped per address, so OWNER_SECRET cannot be guessed without limit.
+  // A counter that cannot be read fails closed.
+  try {
+    const at = now();
+    const salt = getSecret("MANDATE_SIGNING_KEY") ?? "owner-sign-in";
+    const db = await getDb();
+    const allowed = await db.transaction((tx) =>
+      takeFromCounter(tx, `owner:addr:${addressKey(clientAddress(request), salt, at)}`, CAPS.ownerSignIns, HOUR_MS, at),
+    );
+    if (!allowed) return NextResponse.redirect(`${origin}/owner?error=too-many`, 303);
+  } catch {
+    return NextResponse.redirect(`${origin}/owner?error=unavailable`, 303);
+  }
   const form = await request.formData().catch(() => null);
   const secret = form?.get("secret");
   if (!secretMatches(secret)) return NextResponse.redirect(`${origin}/owner?error=wrong`, 303);

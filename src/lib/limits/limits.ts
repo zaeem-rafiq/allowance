@@ -20,6 +20,8 @@ export const CAPS = {
   addressRuleCalls: 60,
   /** Signed rule versions per visitor per hour. */
   visitorSigns: 10,
+  /** Owner sign-in attempts per address per hour. */
+  ownerSignIns: 10,
 } as const;
 
 /**

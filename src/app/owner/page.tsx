@@ -18,6 +18,8 @@ const NOTICES: Record<string, { text: string; tone: "good" | "bad" }> = {
   "recorded=set": { text: "Your latest run in this browser is now the recorded run.", tone: "good" },
   "recorded=none": { text: "No finished run found in this browser. Run Try it on the home page first.", tone: "bad" },
   "error=wrong": { text: "That secret is not right.", tone: "bad" },
+  "error=too-many": { text: "Too many sign-in attempts from here. Try again in an hour.", tone: "bad" },
+  "error=unavailable": { text: "Sign-in is unavailable right now. Try again in a moment.", tone: "bad" },
   "error=not-configured": { text: "Owner sign-in is not configured on this server.", tone: "bad" },
 };
 

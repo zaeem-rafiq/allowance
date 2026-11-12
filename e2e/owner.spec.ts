@@ -43,3 +43,17 @@ test("refuses the recorded-run action without the owner", async ({ page, request
   expect(asOwner.status()).toBe(303);
   expect(asOwner.headers()["location"]).toMatch(/\/owner\?recorded=none$/);
 });
+
+test("stops owner sign-in attempts after ten an hour from one address", async ({ request }) => {
+  const origin = test.info().project.use.baseURL as string;
+  const attempt = () =>
+    request.post("/api/owner/session", {
+      headers: { origin, "cf-connecting-ip": "192.0.2.50" },
+      form: { secret: "not-the-secret" },
+      maxRedirects: 0,
+    });
+  for (let i = 0; i < 10; i++) {
+    expect((await attempt()).headers()["location"]).toMatch(/error=wrong$/);
+  }
+  expect((await attempt()).headers()["location"]).toMatch(/error=too-many$/);
+});
