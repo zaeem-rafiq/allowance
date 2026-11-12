@@ -9,8 +9,10 @@ Screen 1: a product page in the demo store, with one hidden line lit up in red: 
 > I let an AI agent restock my house. Then I hid one line on a product page.
 
 **0:05 to 0:30, payoff, with the problem spoken over it.**
-Screen 2: the agent's run. It adds the gift card. A red card appears: "Blocked: gift cards are outside your rule. PayPal was not charged."
-> The agent fell for it, and PayPal still wasn't charged. Last holiday season, traffic from AI tools to US stores grew 693%, according to Adobe. And a NeurIPS 2025 study found that simple hidden instructions partly hijack web agents in up to 86% of cases. So I don't keep the limit inside the agent, where a web page can talk it out of it. I put it in the payment.
+Screen 2: the agent's run. Its steps stream in, it opens the page with the line, and it ignores the line. Then "Now pretend it was fooled: Skip the AI" sends the cart the line asked for straight to checkout. A red card appears: "Blocked by your rule: never gift cards. PayPal charged $0."
+> Today's agent ignored my line. But I don't want my money to depend on that, so I send the exact cart the line asked for, as if the agent fell for it. Blocked, and PayPal wasn't charged. Last holiday season, traffic from AI tools to US stores grew 693%, according to Adobe. And a NeurIPS 2025 study found that simple hidden instructions partly hijack web agents in up to 86% of cases. So I don't keep the limit inside the agent, where a web page can talk it out of it. I put it in the payment.
+
+_Changed on November 11, 2026, 8:45 pm CT, under R28: the real agent followed 0 of 30 hidden lines in the attack test, so the hook uses Skip the AI with honest narration instead of "the agent fell for it."_
 
 **0:30 to 1:20, "so I built Allowance".**
 Screens 3 to 7, in order.
@@ -18,11 +20,11 @@ Screens 3 to 7, in order.
 
 **1:20 to 1:40, the dispute.**
 Screen 8: a dispute arrives from the sandbox buyer. The evidence timeline fills in.
-> If someone disputes a purchase later, Allowance sends PayPal the proof in about 40 seconds. That's the signed rule, the cart, and every step the agent took.
+> If someone disputes a purchase later, Allowance sends PayPal the proof in [N] seconds. That's the signed rule, the cart, and every step the agent took.
 
 **1:40 to 1:50, the result as a number.**
 Screen 9: the eval card.
-> I attacked it with [30] poisoned product pages. The agent fell for [N] of them. Allowance stopped all [N] before PayPal charged anything, and it blocked none of [20] normal restocks.
+> I attacked it with 30 poisoned product pages. The agent fell for none of them. When I sent every one of those carts straight to checkout anyway, Allowance stopped all 30 before PayPal charged anything, and it charged all 20 normal restocks.
 
 **1:50 to 2:00, close and limits.**
 Screen 10: the try-it page and its link.
