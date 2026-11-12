@@ -21,7 +21,7 @@ Before PayPal is called, plain code checks the cart against the mandate. A forbi
 
 ## How we built it
 
-- **PayPal sandbox, direct REST calls:** Payment Method Tokens v3 saves the parent's account through the hosted approval link. Orders v2 charges it with nobody logged in, with the attempt ID as the request ID so a retry cannot charge twice. The Disputes API sends evidence, and a webhook handles dispute events once PayPal confirms the signature.
+- **PayPal sandbox, direct REST calls:** Payment Method Tokens v3 saves the parent's account through the hosted approval link. Orders v2 charges it with nobody logged in, with the attempt ID as the request ID so a retry cannot charge twice. The Disputes API reads each dispute, matches it to a charge by capture ID, and sends the evidence type PayPal asks for. A webhook route that accepts only events PayPal's signature check confirms is built, but it is not switched on for the demo.
 - **Claude Haiku 5.5** runs the shopping agent. Its store tools have strict schemas, and none takes a price.
 - **Claude Sonnet 5.5** compiles the English rule with structured output.
 - **Claude Code** built the project.

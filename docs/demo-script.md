@@ -20,7 +20,9 @@ Screens 3 to 7, in order.
 
 **1:20 to 1:40, the dispute.**
 Screen 8: a dispute arrives from the sandbox buyer. The evidence timeline fills in.
-> If someone disputes a purchase later, Allowance sends PayPal the proof in [N] seconds. That's the signed rule, the cart, and every step the agent took.
+> If someone disputes a purchase later, Allowance sends PayPal the proof two seconds after it sees the dispute. That's the signed rule, the cart, and every step the agent took.
+
+Measured on the preview on Nov 12, 2026: evidence sent 2 seconds after Allowance first saw dispute PP-R-BZT-10200203, and PayPal then listed it as submitted by the seller. Recording prep: open the dispute from the sandbox buyer at least 10 minutes before recording this screen, because PayPal's sandbox listed each new dispute about 8 minutes after it was filed. Then the owner clicks Check PayPal for disputes.
 
 **1:40 to 1:50, the result as a number.**
 Screen 9: the eval card.

@@ -54,8 +54,8 @@ All calls are direct REST calls to PayPal's sandbox (`api-m.sandbox.paypal.com`)
 |---|---|---|
 | Payment Method Tokens v3 | Creates a setup token, sends the parent to PayPal's hosted approval link, then exchanges the approved setup token for a payment token (the saved account). | `src/lib/paypal/client.ts` |
 | Orders v2 | Creates an order with `intent: CAPTURE` that charges the saved account by its `vault_id`, with nobody logged in. The attempt ID is the `PayPal-Request-Id`, so a retry returns the same order. It also reads an order back. | `src/lib/paypal/client.ts` |
-| Disputes API | Lists and reads disputes, matches one to a charge by capture ID, and sends evidence (notes and a PDF) through the provide-evidence call, once. | `src/lib/paypal/disputes.ts`, `src/lib/disputes/handle.ts` |
-| Webhooks | `/api/paypal/webhook` takes dispute events only. A message counts after PayPal's verify-webhook-signature call confirms it, and Allowance then re-reads the dispute from PayPal. | `src/app/api/paypal/webhook/route.ts` |
+| Disputes API | Lists and reads disputes, matches one to a charge by capture ID, and sends evidence (notes and a PDF) through the provide-evidence call, once, as the evidence type PayPal asked for. Tested on a real sandbox dispute: sent 2 seconds after Allowance saw it. | `src/lib/paypal/disputes.ts`, `src/lib/disputes/handle.ts` |
+| Webhooks | `/api/paypal/webhook` takes dispute events only. A message counts after PayPal's verify-webhook-signature call confirms it, and Allowance then re-reads the dispute from PayPal. It is off unless `PAYPAL_WEBHOOK_ID` is set, and the demo leaves it off: the owner's Check PayPal for disputes button runs the same steps. | `src/app/api/paypal/webhook/route.ts` |
 
 ## The AI tools and how each is used
 

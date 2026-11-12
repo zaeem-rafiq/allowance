@@ -81,7 +81,8 @@ async function DisputeList({ searchParams }: { searchParams: SearchParams }) {
       ) : rows.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-zinc-300 p-5 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
           No disputes yet. To try one, open a dispute on an Allowance charge from the sandbox buyer account in PayPal&apos;s
-          Resolution Center, and choose &ldquo;unauthorized&rdquo; as the reason.
+          Resolution Center, and choose &ldquo;I haven&rsquo;t received the item or service&rdquo;. PayPal lists a new
+          dispute after a few minutes.
         </p>
       ) : (
         <ul aria-label="Disputes" className="flex flex-col gap-3">

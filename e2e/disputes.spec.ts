@@ -9,7 +9,7 @@ test("fills the evidence timeline when a dispute arrives", async ({ page, reques
   await page.getByRole("button", { name: "Try a normal restock" }).click();
   await expect(page.getByTestId("result-card")).toContainText("PayPal charged $34.");
 
-  // The sandbox buyer opens an "unauthorized" dispute on that capture, and PayPal asks the seller for evidence.
+  // The sandbox buyer opens an "item not received" dispute on that capture, and PayPal asks the seller for evidence.
   await steer(request, {
     hooks: { disputes: [{ id: "PP-D-TEST1", captureId: "FAKE-CAPTURE-1", status: "WAITING_FOR_SELLER_RESPONSE", withEvidenceLink: true }] },
   });
