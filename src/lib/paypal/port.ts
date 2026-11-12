@@ -35,6 +35,11 @@ export interface PayPalPort {
     requestId: string;
     items: ChargeItem[];
     description: string;
+    /**
+     * True when this repeats a request that may already have reached PayPal (settling an
+     * unknown or stuck charge). Then no failure can mean "nothing charged".
+     */
+    repeat?: boolean;
   }): Promise<ChargeResult>;
   /** Reads an order's current state. */
   lookupOrder(orderId: string): Promise<ChargeResult>;

@@ -289,6 +289,77 @@ describe("PayPal sandbox client: refusals and retries", () => {
     expect(calls.order).toHaveLength(1);
   });
 
+  it("reports unknown when a timeout is followed by PREVIOUS_REQUEST_IN_PROGRESS (the first request may still capture)", async () => {
+    const { client, calls } = setup({
+      orders: [
+        () => {
+          throw timeout();
+        },
+        () => failure(409, { name: "RESOURCE_CONFLICT", details: [{ issue: "PREVIOUS_REQUEST_IN_PROGRESS" }] }),
+      ],
+    });
+    expect(await charge(client)).toEqual({ status: "unknown", reason: "PREVIOUS_REQUEST_IN_PROGRESS" });
+    expect(calls.order).toHaveLength(2);
+  });
+
+  it("refuses a definite refusal of the repeat after a timeout (PayPal answers a repeated request ID with the first result)", async () => {
+    const { client } = setup({
+      orders: [
+        () => {
+          throw timeout();
+        },
+        () => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] }),
+      ],
+    });
+    expect(await charge(client)).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
+  });
+
+  it("reports unknown for a 401 on the repeat after a timeout, since it says nothing about the first request", async () => {
+    const { client } = setup({
+      orders: [
+        () => {
+          throw timeout();
+        },
+        () => failure(401, { name: "AUTHENTICATION_FAILURE" }),
+      ],
+    });
+    expect((await charge(client)).status).toBe("unknown");
+  });
+
+  it("reports unknown for any 409, even with no readable body", async () => {
+    const { client, calls } = setup({ orders: [() => new Response("<html>conflict</html>", { status: 409 })] });
+    expect((await charge(client)).status).toBe("unknown");
+    expect(calls.order).toHaveLength(1);
+  });
+
+  it("refuses a settling repeat that PayPal declines, so the hold is released and the attempt does not stay open", async () => {
+    const { client, calls } = setup({
+      orders: [() => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] })],
+    });
+    const result = await client.charge({ vaultId: "VAULT-1", requestId: "attempt-1", items: [{ name: "Dish soap", quantity: 1, unitCents: 400 }], description: "d", repeat: true });
+    expect(result).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
+    expect(calls.order).toHaveLength(1);
+  });
+
+  it("reports unknown for a first-request 409 PREVIOUS_REQUEST_IN_PROGRESS (a double click racing the same request ID)", async () => {
+    const { client } = setup({
+      orders: [() => failure(409, { name: "RESOURCE_CONFLICT", details: [{ issue: "PREVIOUS_REQUEST_IN_PROGRESS" }] })],
+    });
+    expect(await charge(client)).toEqual({ status: "unknown", reason: "PREVIOUS_REQUEST_IN_PROGRESS" });
+  });
+
+  it("reports unknown, not refused, when a repeat that settles an earlier attempt cannot get a token", async () => {
+    const { client, calls } = setup({ token: () => failure(503, {}) });
+    const result = await client.charge({ vaultId: "VAULT-1", requestId: "attempt-1", items: [{ name: "Dish soap", quantity: 1, unitCents: 400 }], description: "d", repeat: true });
+    expect(result.status).toBe("unknown");
+    expect(calls.order).toHaveLength(0);
+  });
+
+  it("still refuses a first-request refusal, when no order can have gone through", async () => {
+    const { client } = setup({ orders: [() => failure(422, { name: "UNPROCESSABLE_ENTITY", details: [{ issue: "INSTRUMENT_DECLINED" }] })] });
+    expect(await charge(client)).toEqual({ status: "refused", reason: "INSTRUMENT_DECLINED" });
+  });
+
   it("reports unknown CAPTURE_PENDING when the order is COMPLETED but the capture is PENDING", async () => {
     const { client } = setup({ orders: [() => pendingCapture()] });
     expect(await charge(client)).toEqual({ status: "unknown", reason: "CAPTURE_PENDING" });

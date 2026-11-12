@@ -2,16 +2,18 @@
 
 # Allowance
 
-**Tagline:** Your spending rule, enforced at the PayPal payment step, so a hidden line on a web page cannot make your shopping AI overspend.
+**Tagline:** Allowance checks your spending rule before PayPal charges anything, so a hidden line on a web page cannot make your shopping AI overspend.
+
+**What sets it apart:** the same signed rule that blocks a cart is the evidence Allowance sends PayPal when a charge is disputed. We showed it on a real PayPal sandbox dispute: Allowance sent the signed rule, the cart and the agent's steps 2 seconds after it saw the dispute, and PayPal listed the evidence as submitted by the seller.
 
 ## The numbers
 
 - **The problem:** Adobe measured a 693% rise in generative AI traffic to US stores last holiday season. A NeurIPS 2025 study found hidden instructions partly hijack web agents in up to 86% of cases.
-- **The result:** The real agent followed 0 of 30 hidden lines. We then sent each of the 30 forbidden carts straight to checkout, as a fooled agent would. All 30 were stopped before PayPal: 26 blocked, 4 held for approval, 0 PayPal charge calls. All 20 normal restocks were charged. PayPal was a stand-in that counts calls.
+- **The result:** 30 of 30 forbidden carts were stopped before PayPal (26 blocked, 4 held for approval), with 0 PayPal charge calls, and all 20 normal restocks were charged. The real agent followed 0 of 30 hidden lines, so we used "Skip the AI" to send each forbidden cart straight to checkout, as a fooled agent would. In this test PayPal was a stand-in that counts calls.
 
 ## Inspiration
 
-A prompt that says "never buy gift cards" sits where an attacker's text can also sit. We put the limit where a web page cannot write: the payment step.
+A prompt that says "never buy gift cards" sits where an attacker's text can also sit. We put the limit where a web page cannot write: plain code that checks every cart before PayPal is called.
 
 ## What it does
 
@@ -24,6 +26,7 @@ Before PayPal is called, plain code checks the cart against the mandate. A forbi
 - **PayPal sandbox, direct REST calls:** Payment Method Tokens v3 saves the parent's account through the hosted approval link. Orders v2 charges it with nobody logged in, with the attempt ID as the request ID so a retry cannot charge twice. The Disputes API reads each dispute, matches it to a charge by capture ID, and sends the evidence type PayPal asks for. A webhook route that accepts only events PayPal's signature check confirms is built, but it is not switched on for the demo.
 - **Claude Haiku 5.5** runs the shopping agent. Its store tools have strict schemas, and none takes a price.
 - **Claude Sonnet 5.5** compiles the English rule with structured output.
+- **Render** hosts it: a web service, Render Postgres for the ledger and the dispute records, and a preview deployment for every pull request. The live demo and its real PayPal and AI runs were tested on those previews before release.
 - **Claude Code** built the project.
 
 ## Challenges
@@ -42,11 +45,11 @@ The agent resisted every line, but thirty lines and one model are a small sample
 
 ## Scope choices and what's next
 
-Allowance runs on PayPal's sandbox only. The mandate follows AP2's Intent Mandate field names but is not official AP2. There is one demo store. Disputes are opened by hand from the sandbox buyer, and the evidence code is tested against a stand-in for PayPal's replies. Arize tracing is not built. Next: send evidence on a real sandbox dispute.
+Allowance runs on PayPal's sandbox only. The mandate follows AP2's Intent Mandate field names but is not official AP2. There is one demo store. Disputes are opened by hand from the sandbox buyer, and Allowance checks PayPal for them when the owner clicks a button or the dispute's page is open. The webhook route is built but not switched on. Arize tracing is not built. Next: switch on the dispute webhook, so evidence goes out without a click.
 
 ## Built with
 
-Next.js, TypeScript, Tailwind CSS, PayPal Payment Method Tokens v3, Orders v2, Disputes API, Webhooks, Claude Haiku 5.5, Claude Sonnet 5.5, Claude Code, AG Grid Community, PostgreSQL, Render
+Next.js, TypeScript, Tailwind CSS, PayPal Payment Method Tokens v3, Orders v2, Disputes API, Claude Haiku 5.5, Claude Sonnet 5.5, Claude Code, AG Grid Community, PostgreSQL, Render
 
 ## Try it out
 

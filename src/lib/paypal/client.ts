@@ -174,7 +174,7 @@ export class PayPalSandboxClient implements PayPalPort {
     return { status: "refused", reason: `ORDER_${String(json.status ?? "UNKNOWN")}`, orderId };
   }
 
-  async charge(opts: { vaultId: string; requestId: string; items: ChargeItem[]; description: string }): Promise<ChargeResult> {
+  async charge(opts: { vaultId: string; requestId: string; items: ChargeItem[]; description: string; repeat?: boolean }): Promise<ChargeResult> {
     const totalCents = opts.items.reduce((sum, i) => sum + i.unitCents * i.quantity, 0);
     const body = {
       intent: "CAPTURE",
@@ -199,7 +199,8 @@ export class PayPalSandboxClient implements PayPalPort {
     let lastError = "PayPal timed out";
     // Whether an order request may have reached PayPal. Until one has, a failure means nothing
     // was charged; after one has, only PayPal's answer to the same request ID can say.
-    let orderMaybeSent = false;
+    // A repeat that settles an earlier attempt starts out as possibly sent.
+    let orderMaybeSent = opts.repeat === true;
     // One retry with the same request ID: a timeout, a 5xx or a 429 may hide a charge that
     // already happened, and the repeat returns that same order instead of a second charge.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -217,7 +218,10 @@ export class PayPalSandboxClient implements PayPalPort {
         if (err instanceof PayPalHttpError) {
           const reason = err.status === 429 ? "RATE_LIMITED" : plainReason(err.status, err.body);
           // The same request ID still being processed: the first request may yet capture.
-          if (/DUPLICATE/.test(reason)) return { status: "unknown", reason };
+          // PayPal's Orders v2 errors list PREVIOUS_REQUEST_IN_PROGRESS (RESOURCE_CONFLICT) for this.
+          if (err.status === 409 || /DUPLICATE|PREVIOUS_REQUEST_IN_PROGRESS|RESOURCE_CONFLICT/.test(reason)) {
+            return { status: "unknown", reason };
+          }
           if (err.status === 429) {
             lastError = reason;
             if (attempt === 0) continue;
@@ -228,6 +232,11 @@ export class PayPalSandboxClient implements PayPalPort {
             lastError = reason;
             continue;
           }
+          // A decline (400 or 422) is final even on a repeat: PayPal answers a repeated request ID
+          // with the first request's own result, and a request still running is a 409 (above).
+          // Any other 4xx after a possible send (a 401 from a stale sign-in, say) says nothing
+          // about the first request, so the hold stays.
+          if (orderMaybeSent && err.status !== 400 && err.status !== 422) return { status: "unknown", reason };
           return { status: "refused", reason };
         }
         orderMaybeSent = true;

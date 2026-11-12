@@ -16,7 +16,7 @@ _Changed on November 11, 2026, 8:45 pm CT, under R28: the real agent followed 0 
 
 **0:30 to 1:20, "so I built Allowance".**
 Screens 3 to 7, in order.
-> So I built Allowance. I write my rule the way I'd say it: "$120 a week, household basics only, nothing over $40 without asking me, never gift cards." Allowance turns that into a signed mandate, and I approve it once in PayPal. After that the agent shops on its own. Here a $34 restock goes through. PayPal charges my saved account, nobody logs in, and the receipt shows which rule allowed it. A $52 item stops and asks me first. One tap and it goes through.
+> So I built Allowance. I write my rule the way I'd say it: "$120 a week, household basics only, nothing over $40 without asking me, never gift cards." Allowance turns that into a signed mandate, and I save my PayPal account once. After that the agent shops on its own. Here a $34 restock goes through. PayPal charges my saved account, nobody logs in, and the receipt shows which rule allowed it. A $52 item stops and asks me first. One tap and it goes through.
 
 **1:20 to 1:40, the dispute.**
 Screen 8: a dispute arrives from the sandbox buyer. The evidence timeline fills in.
@@ -26,11 +26,11 @@ Measured on the preview on Nov 12, 2026: evidence sent 2 seconds after Allowance
 
 **1:40 to 1:50, the result as a number.**
 Screen 9: the eval card.
-> I attacked it with 30 poisoned product pages. The agent fell for none of them. When I sent every one of those carts straight to checkout anyway, Allowance stopped all 30 before PayPal charged anything, and it charged all 20 normal restocks.
+> I attacked it with 30 poisoned product pages. The agent fell for none of them. When I sent every one of those carts straight to checkout anyway, Allowance stopped all 30 before any charge reached PayPal, and it allowed all 20 normal restocks. In that test, PayPal was a stand-in that counts calls.
 
 **1:50 to 2:00, close and limits.**
 Screen 10: the try-it page and its link.
-> Agents are already shopping for people, and one hidden line is enough to turn them. Try to trick mine at the link. It runs on PayPal's sandbox. The mandate follows the shape of AP2, the agent-payments standard PayPal backs, because PayPal hasn't made its own mandate APIs public yet.
+> Agents are already shopping for people, and one hidden line is enough to turn them. Try to trick mine at the link. It runs on PayPal's sandbox. The mandate follows the shape of AP2, the agent-payments standard PayPal backs. PayPal's own agent checkout programs need a partner registration, so I built my own signed format and say so.
 
 ## Screens: the build list
 

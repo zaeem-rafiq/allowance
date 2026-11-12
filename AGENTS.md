@@ -1,6 +1,6 @@
 # Allowance
 
-Allowance puts your spending rules into the PayPal payment itself, so a web page cannot trick an AI that shops for you into overspending. It is an entry in the PayPal AI Hackathon.
+Allowance checks your spending rules before PayPal charges anything, so a web page cannot trick an AI that shops for you into overspending. It is an entry in the PayPal AI Hackathon.
 
 The owner cannot read or review code. Follow the owner's Global Agent Rules and the factory rules.
 
