@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { getDb } from "@/lib/db";
+import { formatWhen } from "@/lib/disputes/timeline";
 import { currentOwner } from "@/lib/owner/guard";
 import { getSavedPayPal } from "@/lib/owner/paypal-save";
 import { ownerConfigured } from "@/lib/owner/session";
@@ -100,7 +101,7 @@ async function OwnerPanel({ searchParams }: { searchParams: PageProps<"/owner">[
         ) : saved ? (
           <p className="mt-1">
             <span className="font-medium text-emerald-700 dark:text-emerald-400">PayPal saved</span>
-            <span className="text-zinc-600 dark:text-zinc-400"> on {new Date(saved.savedAt).toUTCString()}</span>
+            <span className="text-zinc-600 dark:text-zinc-400"> on {formatWhen(saved.savedAt)}</span>
           </p>
         ) : (
           <p className="mt-1 text-zinc-600 dark:text-zinc-400">PayPal is not saved yet.</p>
