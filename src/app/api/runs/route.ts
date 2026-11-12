@@ -15,6 +15,13 @@ import { resolveVisitor } from "@/lib/visitor/request";
 
 const KINDS: RunKind[] = ["agent", "restock", "ask_first", "skip"];
 
+/** Which cap refused the run. The run caps reset hourly; only the AI budget is daily. */
+const CAP_MESSAGES = {
+  budget: "The live AI has reached today's limit.",
+  runs: "You have used this hour's live AI tries.",
+  checkouts: "This connection has used this hour's live tries.",
+} as const;
+
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return forbidden();
   const body = (await request.json().catch(() => null)) as { kind?: string; hiddenLine?: unknown } | null;
@@ -40,7 +47,7 @@ export async function POST(request: Request) {
     const allowed = await db.transaction((tx) =>
       takeFromCounter(tx, `checkout:addr:${addr}`, CAPS.addressCheckouts, HOUR_MS, at),
     );
-    if (!allowed) return Response.json({ cap: true, error: "You have used today's live tries." }, { status: 429 });
+    if (!allowed) return Response.json({ cap: "checkouts", error: CAP_MESSAGES.checkouts }, { status: 429 });
   } catch {
     return Response.json({ error: CANNOT_CHECK }, { status: 503 });
   }
@@ -78,7 +85,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "A run is already in progress. Wait for it to finish." }, { status: 429 });
   }
   if (!gate.ok) {
-    const res = Response.json({ cap: true, error: "You have used today's live tries." }, { status: 429 });
+    const kindOfCap = gate.why === "budget" ? "budget" : "runs";
+    const res = Response.json({ cap: kindOfCap, error: CAP_MESSAGES[kindOfCap] }, { status: 429 });
     if (visitor.setCookie) res.headers.append("Set-Cookie", visitor.setCookie);
     return res;
   }
@@ -90,7 +98,15 @@ export async function POST(request: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      // A visitor who closes the tab cancels the stream. The run still finishes and is stored,
+      // so later steps are dropped instead of throwing into the run.
+      const send = (obj: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          // The stream was cancelled.
+        }
+      };
       send({ type: "start", runId });
       try {
         const onUsage = async (u: { model: string; inputTokens: number; outputTokens: number }) => {
@@ -124,7 +140,11 @@ export async function POST(request: Request) {
           },
         });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Already cancelled.
+        }
       }
     },
   });

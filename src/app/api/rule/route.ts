@@ -29,9 +29,9 @@ function reply(body: unknown, status: number, cookie: string | null = null): Res
 }
 
 function budgetClosedMessage(reason: "daily" | "total" | "ended"): string {
-  return reason === "ended"
-    ? "The rule reader was turned off after December 15, 2026."
-    : "The rule reader has reached its limit for today. Try again tomorrow.";
+  if (reason === "ended") return "The rule reader was turned off after December 15, 2026.";
+  if (reason === "total") return "The rule reader has used its whole budget for this demo.";
+  return "The rule reader has reached its limit for today. Try again tomorrow.";
 }
 
 export async function POST(request: Request) {

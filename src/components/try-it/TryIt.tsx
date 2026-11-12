@@ -7,6 +7,15 @@ import type { ResultCard } from "@/lib/runs/card";
 import { DEFAULT_HIDDEN_LINE, MAX_LINE_CHARS, describeExtras, forcedCart } from "@/lib/runs/forced-cart";
 import type { RunKind } from "@/lib/runs/run";
 
+/** Which cap refused a run, as /api/runs reports it. The run caps reset hourly; the AI budget daily. */
+type CapKind = "budget" | "runs" | "checkouts";
+const CAP_KINDS: readonly CapKind[] = ["budget", "runs", "checkouts"];
+const CAP_HEADLINES: Record<CapKind, string> = {
+  budget: "The live AI has reached today\u2019s limit.",
+  runs: "You have used this hour\u2019s live AI tries.",
+  checkouts: "This connection has used this hour\u2019s live tries.",
+};
+
 interface Step {
   seq: number;
   kind: "tool" | "thought" | "system";
@@ -20,7 +29,7 @@ export function TryIt() {
   const [card, setCard] = useState<ResultCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
-  const [cap, setCap] = useState(false);
+  const [cap, setCap] = useState<CapKind | null>(null);
   const inFlight = useRef(false);
   const hydrated = useHydrated();
 
@@ -46,7 +55,7 @@ export function TryIt() {
     setCard(null);
     setError(null);
     setRunId(null);
-    setCap(false);
+    setCap(null);
     try {
       const res = await fetch("/api/runs", {
         method: "POST",
@@ -55,7 +64,7 @@ export function TryIt() {
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null);
-        if (body?.cap) setCap(true);
+        if (body?.cap) setCap(CAP_KINDS.includes(body.cap) ? body.cap : "runs");
         else setError(body?.error ?? "Something went wrong. Nothing was charged.");
         return;
       }
@@ -153,10 +162,11 @@ export function TryIt() {
       <section aria-label="Result" aria-live="polite" className="min-h-40">
         {cap ? (
           <div className="flex flex-col gap-3 rounded-2xl border border-zinc-300 bg-zinc-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
-            <p className="text-xl font-semibold">You have used today&apos;s live tries.</p>
+            <p className="text-xl font-semibold">{CAP_HEADLINES[cap]}</p>
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Skip the AI still works: it sends the cart your line asked for straight to checkout, with no AI call. Below
-              is a real run recorded earlier.
+              {cap === "checkouts"
+                ? "Try again in an hour. Below is a real run recorded earlier."
+                : "Skip the AI still works: it sends the cart your line asked for straight to checkout, with no AI call. Below is a real run recorded earlier."}
             </p>
           </div>
         ) : error ? (

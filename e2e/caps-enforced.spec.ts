@@ -10,7 +10,7 @@ test("stops AI runs when the day's AI budget is spent, and Skip the AI still wor
   await steer(request, { aiSpendMicroUsd: 1_250_000 });
   await openHome(page);
   await page.getByRole("button", { name: "Try it" }).click();
-  await expect(page.getByText("You have used today's live tries.")).toBeVisible();
+  await expect(page.getByText("The live AI has reached today\u2019s limit.")).toBeVisible();
   await page.getByRole("button", { name: "Skip the AI: send the cart your line asked for" }).click();
   await expect(page.getByTestId("result-card").first()).toContainText("Blocked by your rule: never gift cards. PayPal charged $0.");
 });
@@ -29,7 +29,7 @@ test("refuses the 31st checkout from one address in an hour, and not another add
   }
   const capped = await send("203.0.113.7");
   expect(capped.status()).toBe(429);
-  expect((await capped.json()).cap).toBe(true);
+  expect((await capped.json()).cap).toBe("checkouts");
   const other = await send("198.51.100.4");
   expect(other.status()).toBe(200);
 });

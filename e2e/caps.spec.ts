@@ -21,7 +21,7 @@ test("shows the recorded run at the cap", async ({ page }) => {
     await expect(page.getByTestId("result-card")).toBeVisible();
   }
   await page.getByRole("button", { name: "Try it" }).click();
-  await expect(page.getByText("You have used today's live tries.")).toBeVisible();
+  await expect(page.getByText("You have used this hour\u2019s live AI tries.")).toBeVisible();
   await expect(page.getByRole("heading", { name: /^Recorded on / })).toBeVisible();
   await expect(page.getByLabel("Recorded run").getByTestId("result-card")).toContainText("Your AI fell for it.");
 
