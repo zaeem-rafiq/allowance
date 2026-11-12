@@ -169,7 +169,7 @@ export function TryIt() {
             <p className="text-lg font-semibold">{error}</p>
           </div>
         ) : card ? (
-          <Card card={card} runId={runId} onDecided={setCard} />
+          <Card card={card} runId={runId} onDecided={setCard} onSkip={running ? undefined : () => void start("skip")} />
         ) : running ? (
           <div className="rounded-2xl border border-dashed border-zinc-300 p-5 text-zinc-500 dark:border-zinc-700">
             {running === "skip" ? "Sending the cart to checkout…" : "The AI is shopping. Its steps appear below as they happen."}
@@ -311,7 +311,17 @@ function ApprovalCard({ approval, onDecided }: { approval: NonNullable<ResultCar
   );
 }
 
-function Card({ card, runId, onDecided }: { card: ResultCard; runId: string | null; onDecided?: (c: ResultCard) => void }) {
+function Card({
+  card,
+  runId,
+  onDecided,
+  onSkip,
+}: {
+  card: ResultCard;
+  runId: string | null;
+  onDecided?: (c: ResultCard) => void;
+  onSkip?: () => void;
+}) {
   return (
     <div data-testid="result-card" className={`flex flex-col gap-4 rounded-2xl border p-5 shadow-sm ${TONES[card.tone]}`}>
       <p className="text-xl font-semibold leading-snug sm:text-2xl">{card.headline}</p>
@@ -324,6 +334,15 @@ function Card({ card, runId, onDecided }: { card: ResultCard; runId: string | nu
         <dd>{card.paypal}</dd>
       </dl>
       {card.approval && onDecided && <ApprovalCard approval={card.approval} onDecided={onDecided} />}
+      {onSkip && (card.ending === "b" || card.ending === "e") && (
+        <button
+          type="button"
+          onClick={onSkip}
+          className="self-start rounded-lg border border-current px-3 py-1.5 text-sm font-medium opacity-90 hover:opacity-100"
+        >
+          {card.ending === "b" ? "Now pretend it was fooled: Skip the AI" : "Skip the AI: send the cart your line asked for"}
+        </button>
+      )}
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
         {card.receiptId && (
           <Link href={`/receipts/${card.receiptId}`} className="font-medium underline underline-offset-4">

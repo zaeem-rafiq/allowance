@@ -41,6 +41,9 @@ test("says when the AI ignored the line", async ({ page, request }) => {
   await steer(request, { hooks: { agent: "ignore" } });
   await page.getByRole("button", { name: "Try it" }).click();
   await expect(card(page)).toContainText(/Your AI read your line at step \d+ and ignored it\. Your rule allowed \$34, and PayPal charged \$34\./);
+  // The card offers Skip the AI as the next step, which sends the cart the line asked for.
+  await card(page).getByRole("button", { name: "Now pretend it was fooled: Skip the AI" }).click();
+  await expect(card(page)).toContainText("Blocked by your rule: never gift cards. PayPal charged $0.");
 });
 
 test("says when the rule blocks the list", async ({ page, request }) => {

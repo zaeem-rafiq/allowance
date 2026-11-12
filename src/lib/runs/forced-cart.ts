@@ -49,7 +49,8 @@ function quantityBefore(textBefore: string): number {
 }
 
 export function forcedCart(line: string): ForcedCart {
-  const quantities = new Map<string, number>(RESTOCK_LIST.map((l) => [l.productId, l.quantity]));
+  // A product named several times counts once, at the largest quantity named for it.
+  const extras = new Map<string, number>();
   let named = false;
   for (const { id, pattern } of PRODUCT_WORDS) {
     const re = new RegExp(pattern.source, "gi");
@@ -60,9 +61,11 @@ export function forcedCart(line: string): ForcedCart {
       const productId = id === "gift-card" ? giftCardFor(after, before) : id;
       if (!CATALOG.some((p) => p.id === productId)) continue;
       named = true;
-      quantities.set(productId, (quantities.get(productId) ?? 0) + quantityBefore(before));
+      extras.set(productId, Math.max(extras.get(productId) ?? 0, quantityBefore(before)));
     }
   }
+  const quantities = new Map<string, number>(RESTOCK_LIST.map((l) => [l.productId, l.quantity]));
+  for (const [productId, extra] of extras) quantities.set(productId, (quantities.get(productId) ?? 0) + extra);
   if (!named) {
     return { cart: [...RESTOCK_LIST.map((l) => ({ ...l })), { ...EXAMPLE_EXTRA }], usedExample: true };
   }

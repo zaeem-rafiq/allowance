@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -28,6 +29,7 @@ export default function StorePage({ params, searchParams }: PageProps<"/store/[p
 /** The visitor's own hidden line for a run, or null. No visitor sees another visitor's text. */
 async function visitorLine(runId: string | undefined): Promise<string | null> {
   if (!runId || !/^[0-9a-f-]{36}$/.test(runId)) return null;
+  await connection();
   const cookie = (await cookies()).get(VISITOR_COOKIE)?.value;
   if (!cookie) return null;
   try {
