@@ -24,6 +24,8 @@ interface Proposal {
 
 interface Failure {
   message: string;
+  /** False when the connection dropped, so the page cannot know whether the server acted. */
+  fromServer: boolean;
 }
 
 type Decision = "accept" | "remove";
@@ -92,7 +94,7 @@ export function RuleWriter({
       if (!result.ok || !result.data?.compiled) {
         setProposal(null);
         setDecisions({});
-        setFailure({ message: typeof result.data?.error === "string" ? result.data.error : "Could not read this rule" });
+        setFailure({ message: typeof result.data?.error === "string" ? result.data.error : "Could not read this rule", fromServer: true });
         return;
       }
       setProposal({ text: trimmed, compiled: result.data.compiled as CompiledRule });
@@ -100,7 +102,7 @@ export function RuleWriter({
       setSignedNow(null);
     } catch {
       setProposal(null);
-      setFailure({ message: "The connection dropped. Nothing was changed." });
+      setFailure({ message: "The connection dropped. Check the rule card below before trying again.", fromServer: false });
     } finally {
       inFlight.current = false;
       setBusy(null);
@@ -124,7 +126,7 @@ export function RuleWriter({
       });
       const signed = result.data?.signed as SignedView | undefined;
       if (!result.ok || !signed) {
-        setFailure({ message: typeof result.data?.error === "string" ? result.data.error : "The rule was not signed." });
+        setFailure({ message: typeof result.data?.error === "string" ? result.data.error : "The rule was not signed.", fromServer: true });
         return;
       }
       setCurrents((previous) => (target === "demo" ? { ...previous, demo: signed } : { ...previous, mine: signed }));
@@ -132,7 +134,7 @@ export function RuleWriter({
       setProposal(null);
       setDecisions({});
     } catch {
-      setFailure({ message: "The connection dropped. Nothing was changed." });
+      setFailure({ message: "The connection dropped. Check the rule card below before trying again.", fromServer: false });
     } finally {
       inFlight.current = false;
       setBusy(null);
@@ -232,7 +234,7 @@ export function RuleWriter({
         {failure && (
           <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-red-800 dark:bg-red-950 dark:text-red-200">
             <p className="font-medium">{failure.message}</p>
-            <p className="text-sm">Your earlier rule is unchanged.</p>
+            {failure.fromServer && <p className="text-sm">Your earlier rule is unchanged.</p>}
           </div>
         )}
 
