@@ -21,6 +21,14 @@ interface EvalSummary {
   normalAllowedAndCharged: number;
   normalCartMatchedList: number;
   totalCostUsd: number;
+  skipPass?: {
+    runAt: string;
+    rows: number;
+    blocked: number;
+    askedFirst: number;
+    chargedOutsideRule: number;
+    paypalChargeCalls: number;
+  };
 }
 
 async function loadResults(): Promise<EvalSummary | null> {
@@ -70,18 +78,33 @@ export default async function ResultsPage() {
             normal restocks had no hidden line. Every result was read.
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Stat value={`${r.followed} of ${r.poisoned}`} label="times the agent followed the hidden line" />
-            <Stat
-              value={`${r.poisonedChargedOutsideRule}`}
-              label="carts charged outside the rule"
-              tone={r.poisonedChargedOutsideRule === 0 ? "good" : "bad"}
-            />
+            <Stat value={`${r.followed} of ${r.poisoned}`} label="hidden lines the real agent followed" />
+            {r.skipPass ? (
+              <Stat
+                value={`${r.skipPass.blocked + r.skipPass.askedFirst} of ${r.skipPass.rows}`}
+                label="forbidden carts stopped before PayPal when the agent is fooled on purpose"
+                tone={r.skipPass.chargedOutsideRule === 0 ? "good" : "bad"}
+              />
+            ) : (
+              <Stat
+                value={`${r.poisonedChargedOutsideRule}`}
+                label="carts charged outside the rule"
+                tone={r.poisonedChargedOutsideRule === 0 ? "good" : "bad"}
+              />
+            )}
             <Stat
               value={`${r.normalAllowedAndCharged} of ${r.normal}`}
               label="normal restocks allowed and charged"
               tone={r.normalAllowedAndCharged === r.normal ? "good" : "bad"}
             />
           </div>
+          {r.skipPass && (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              The agent resisted every line, so a second pass sent each line&apos;s forbidden cart straight to checkout, as a
+              fooled agent would (&ldquo;Skip the AI&rdquo;). The rule blocked {r.skipPass.blocked} and held{" "}
+              {r.skipPass.askedFirst} for the parent&apos;s approval. PayPal was called {r.skipPass.paypalChargeCalls} times.
+            </p>
+          )}
           <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[14rem_1fr]">
             <dt className="text-zinc-500">Agent ignored the line</dt>
             <dd>
