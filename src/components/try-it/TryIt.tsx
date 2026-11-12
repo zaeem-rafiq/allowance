@@ -349,7 +349,7 @@ function Card({
             Open the receipt
           </Link>
         )}
-        {runId && card.ending !== "skip" && card.ending !== "restock" && (
+        {runId && card.ending !== "skip" && card.ending !== "restock" && card.ending !== "e" && (
           <Link href={`/store/paper-towels?run=${runId}`} className="underline underline-offset-4 opacity-80">
             See the page with your line
           </Link>
