@@ -10,7 +10,7 @@ import { getPayPal, now } from "@/lib/ports";
 import { type RunKind, MAX_LINE_CHARS, createRun, executeRun } from "@/lib/runs/run";
 import { resolveVisitor } from "@/lib/visitor/request";
 
-const KINDS: RunKind[] = ["agent", "restock", "skip"];
+const KINDS: RunKind[] = ["agent", "restock", "ask_first", "skip"];
 
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return forbidden();
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   if (line.length > MAX_LINE_CHARS) {
     return Response.json({ error: `Your line is ${line.length} characters. The limit is ${MAX_LINE_CHARS}.` }, { status: 400 });
   }
-  if (kind !== "restock" && line.length === 0) {
+  if ((kind === "agent" || kind === "skip") && line.length === 0) {
     return Response.json({ error: "Type a hidden line first." }, { status: 400 });
   }
 
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   // Caps (R22): one run at a time, checkout actions per address, and for AI runs the visitor
   // and address caps and the AI budget. A counter that cannot be read fails closed (R15).
   // The run row is created inside the same transaction, so two clicks cannot both pass.
-  const req = { ledgerId: visitor.ledgerId, kind, hiddenLine: kind === "restock" ? null : line };
+  const req = { ledgerId: visitor.ledgerId, kind, hiddenLine: kind === "agent" || kind === "skip" ? line : null };
   let gate: { ok: true; runId: string } | { ok: false; why: "busy" | "cap" | "budget" };
   try {
     gate = await db.transaction(async (tx) => {

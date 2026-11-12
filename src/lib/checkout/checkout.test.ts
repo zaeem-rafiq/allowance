@@ -147,11 +147,12 @@ describe("checkout", () => {
     expect(r.message).toBe("Your rule allowed this, but no PayPal account is saved yet, so nothing was charged.");
   });
 
-  it("stops a $52 item at $0 because the rule says to ask first", async () => {
+  it("holds a $52 item for the parent's approval and charges nothing yet", async () => {
     const r = await go([{ productId: "vacuum-filters", quantity: 1 }]);
-    expect(r.attempt?.state).toBe("stopped");
-    expect(r.message).toContain("ask first");
+    expect(r.attempt?.state).toBe("pending");
+    expect(r.message).toContain("asking you first");
     expect(paypal.calls.charge).toBe(0);
+    expect((await ledgerSpend(db, ledgerId, T0)).pendingCents).toBe(5200);
   });
 
   it("returns nothing for an unknown receipt ID", async () => {

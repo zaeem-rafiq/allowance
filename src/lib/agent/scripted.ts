@@ -23,7 +23,8 @@ export class ScriptedAgent implements ShoppingAgent {
     }
     await ctx.tools.listProducts();
     let hiddenLine: string | null = null;
-    for (const item of RESTOCK_LIST) {
+    const items = parseList(ctx.shoppingList);
+    for (const item of items) {
       if (behavior !== "skip-pages") {
         const page = await ctx.tools.openProductPage(item.productId);
         const marker = page.indexOf("\n\n");
@@ -45,4 +46,13 @@ export class ScriptedAgent implements ShoppingAgent {
     await ctx.tools.checkout();
     return { kind: "finished" };
   }
+}
+
+/** Reads "- 1 × Name (product_id: id)" lines from the shopping list text. */
+function parseList(text: string): { productId: string; quantity: number }[] {
+  const items = [...text.matchAll(/^- (\d+) × .*\(product_id: ([a-z0-9-]+)\)$/gm)].map((m) => ({
+    productId: m[2],
+    quantity: Number(m[1]),
+  }));
+  return items.length ? items : RESTOCK_LIST.map((l) => ({ ...l }));
 }

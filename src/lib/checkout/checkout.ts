@@ -10,7 +10,18 @@ import type { ChargeResult, PayPalPort } from "@/lib/paypal/port";
 import { SAVED_PAYPAL_KEY, getSetting } from "@/lib/settings";
 import { currentMandate } from "@/lib/visitor/ledger";
 
-export type AttemptState = "blocked" | "stopped" | "reserved" | "captured" | "allowed_not_charged" | "unknown";
+export type AttemptState =
+  | "blocked"
+  | "pending"
+  | "declined"
+  | "expired"
+  | "reserved"
+  | "captured"
+  | "allowed_not_charged"
+  | "unknown";
+
+/** An ask-first request holds its amount for 10 minutes (R24). */
+export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 export type AttemptSource = "agent" | "skip" | "restock" | "approval";
 
 export const CANNOT_CHECK = "Allowance could not check your rule, so nothing was charged.";
@@ -79,8 +90,9 @@ export async function ledgerSpend(q: Queryable, ledgerId: string, now: Date): Pr
     [ledgerId],
   );
   const pending = await q.query<{ total: string | number | null }>(
-    "SELECT coalesce(sum(reserved_cents), 0) AS total FROM attempts WHERE ledger_id = $1 AND state IN ('reserved', 'unknown')",
-    [ledgerId],
+    `SELECT coalesce(sum(reserved_cents), 0) AS total FROM attempts
+     WHERE ledger_id = $1 AND (state IN ('reserved', 'unknown') OR (state = 'pending' AND created_at > $2))`,
+    [ledgerId, new Date(now.getTime() - APPROVAL_TTL_MS).toISOString()],
   );
   return {
     spentCents: spendInWindow(
@@ -144,9 +156,11 @@ export async function checkout(db: Db, paypal: PayPalPort, input: CheckoutInput,
         state = "blocked";
         message = blockMessage(verdict);
       } else if (verdict.decision === "needs_approval") {
-        state = "stopped";
+        // R24: the amount is held while the parent decides, and nothing is charged until they approve.
+        state = "pending";
+        reserved = verdict.totalCents;
         const over = verdict.overLimit.map((l) => l.name).join(", ");
-        message = `${over} costs more than your ask-first limit. Your rule says to ask first, so nothing was charged.`;
+        message = `${over} costs more than your ask-first limit, so your AI is asking you first. Nothing is charged until you approve.`;
       } else if (!saved) {
         state = "allowed_not_charged";
         message = "Your rule allowed this, but no PayPal account is saved yet, so nothing was charged.";
@@ -174,7 +188,7 @@ export async function checkout(db: Db, paypal: PayPalPort, input: CheckoutInput,
           reserved,
           message,
           now.toISOString(),
-          state === "reserved" ? null : now.toISOString(),
+          state === "reserved" || state === "pending" ? null : now.toISOString(),
         ],
       );
       return { kind: "ok" as const, attempt: rows[0], vaultId: saved?.paymentTokenId ?? null };
@@ -202,7 +216,7 @@ export async function checkout(db: Db, paypal: PayPalPort, input: CheckoutInput,
   return { attempt: finalAttempt, error: null, message: finalAttempt.message ?? "" };
 }
 
-async function applyChargeResult(db: Queryable, attempt: AttemptRow, result: ChargeResult, now: Date): Promise<AttemptRow> {
+export async function applyChargeResult(db: Queryable, attempt: AttemptRow, result: ChargeResult, now: Date): Promise<AttemptRow> {
   if (result.status === "captured") {
     const copy: PayPalCopy = {
       orderId: result.orderId,

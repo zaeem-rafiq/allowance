@@ -40,9 +40,9 @@ describe("checkout properties", () => {
             "SELECT state, reserved_cents, captured_cents FROM attempts",
           );
           for (const r of rows) {
-            expect(["blocked", "stopped", "captured", "allowed_not_charged", "unknown"]).toContain(r.state);
+            expect(["blocked", "pending", "captured", "allowed_not_charged", "unknown"]).toContain(r.state);
             // A reservation is held only while PayPal's answer is unknown, and released exactly once.
-            if (r.state === "unknown") expect(r.reserved_cents).toBeGreaterThan(0);
+            if (r.state === "unknown" || r.state === "pending") expect(r.reserved_cents).toBeGreaterThan(0);
             else expect(r.reserved_cents).toBe(0);
             if (r.state !== "captured") expect(r.captured_cents).toBe(0);
           }

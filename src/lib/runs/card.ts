@@ -7,6 +7,13 @@ import type { AgentOutcome } from "./classify";
 export type Ending = "a" | "b" | "c" | "d" | "e" | "restock" | "skip";
 export type Tone = "blocked" | "charged" | "neutral" | "pending";
 
+export interface ApprovalRequest {
+  attemptId: string;
+  items: string;
+  totalCents: number;
+  expiresAt: string;
+}
+
 export interface ResultCard {
   ending: Ending;
   tone: Tone;
@@ -15,26 +22,31 @@ export interface ResultCard {
   rule: string;
   paypal: string;
   receiptId: string | null;
+  /** Set while an ask-first request waits for the parent (R24). */
+  approval?: ApprovalRequest;
 }
 
 export const AI_BUSY_LINE = "The AI is busy right now.";
 
 function ruleLine(a: AttemptRow): string {
   if (a.state === "blocked") return `Blocked by your rule: ${a.rule}.`;
-  if (a.state === "stopped") return "Your rule says to ask first for this item, so the cart stopped.";
+  if (a.state === "pending") return "Your rule says to ask you first for this item.";
+  if (a.state === "declined") return "You declined.";
+  if (a.state === "expired") return "The request expired after 10 minutes.";
   return `Allowed by your rule: ${a.rule}.`;
 }
 
 function paypalLine(a: AttemptRow): string {
   if (a.state === "captured") return `PayPal charged ${formatUsd(a.captured_cents)}. Order ${a.paypal?.orderId}.`;
   if (a.state === "unknown" || a.state === "reserved") return "Checking with PayPal";
+  if (a.state === "pending") return "Nothing charged yet. The amount is held for 10 minutes while you decide.";
   if (a.state === "allowed_not_charged") return a.message ?? "Nothing was charged.";
   return "PayPal charged $0.";
 }
 
 function toneFor(a: AttemptRow): Tone {
   if (a.state === "captured") return "charged";
-  if (a.state === "unknown" || a.state === "reserved") return "pending";
+  if (a.state === "unknown" || a.state === "reserved" || a.state === "pending") return "pending";
   if (a.state === "blocked") return "blocked";
   return "neutral";
 }
@@ -80,7 +92,13 @@ export function composeCard(input: CardInput): ResultCard {
     };
   }
 
-  const base = { tone: toneFor(attempt), rule: ruleLine(attempt), paypal: paypalLine(attempt), receiptId };
+  const base = {
+    tone: toneFor(attempt),
+    rule: ruleLine(attempt),
+    paypal: paypalLine(attempt),
+    receiptId,
+    ...(attempt.state === "pending" ? { approval: approvalFor(attempt) } : {}),
+  };
   const charged = attempt.state === "captured";
   const blocked = attempt.state === "blocked";
 
@@ -96,7 +114,11 @@ export function composeCard(input: CardInput): ResultCard {
     return {
       ...base,
       ending: "restock",
-      headline: blocked ? `Your rule blocked this restock: ${attempt.rule}. PayPal charged $0.` : attempt.message ?? "",
+      headline: blocked
+        ? `Your rule blocked this restock: ${attempt.rule}. PayPal charged $0.`
+        : attempt.state === "pending"
+          ? `Your AI wants to buy ${base.approval?.items}. Your rule says to ask you first.`
+          : attempt.message ?? "",
       ai: "Bought the list.",
     };
   }
@@ -146,4 +168,34 @@ export function composeCard(input: CardInput): ResultCard {
     default:
       return { ...base, ending: "d", headline: attempt.message ?? "", ai: "Checked out." };
   }
+}
+
+function approvalFor(a: AttemptRow): ApprovalRequest {
+  const verdict = a.verdict as { overLimit?: { name: string; unitPriceCents: number }[] };
+  const items = (verdict.overLimit ?? []).map((l) => `${l.name} for ${formatUsd(l.unitPriceCents)}`).join(", ");
+  return {
+    attemptId: a.id,
+    items: items || "an item over your limit",
+    totalCents: a.total_cents,
+    expiresAt: new Date(new Date(a.created_at).getTime() + 10 * 60 * 1000).toISOString(),
+  };
+}
+
+/** The card after the parent approves or declines an ask-first request. */
+export function decisionCard(a: AttemptRow): ResultCard {
+  const headline =
+    a.state === "captured"
+      ? `You approved it. PayPal charged ${formatUsd(a.captured_cents)}.`
+      : a.state === "blocked"
+        ? `You approved it, but your rule still blocked it: ${a.rule}. PayPal charged $0.`
+        : a.message ?? "";
+  return {
+    ending: "restock",
+    tone: toneFor(a),
+    headline,
+    ai: "Bought the list, with one item over your ask-first limit.",
+    rule: ruleLine(a),
+    paypal: paypalLine(a),
+    receiptId: a.state === "captured" ? a.receipt_id : null,
+  };
 }

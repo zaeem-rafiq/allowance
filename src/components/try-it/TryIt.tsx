@@ -14,7 +14,7 @@ interface Step {
   text: string;
 }
 
-type Kind = "agent" | "restock" | "skip";
+type Kind = "agent" | "restock" | "ask_first" | "skip";
 
 export function TryIt() {
   const [line, setLine] = useState(DEFAULT_LINE);
@@ -44,7 +44,7 @@ export function TryIt() {
 
   async function start(kind: Kind) {
     if (inFlight.current) return;
-    if (kind !== "restock" && (empty || tooLong)) return;
+    if ((kind === "agent" || kind === "skip") && (empty || tooLong)) return;
     inFlight.current = true;
     setRunning(kind);
     setSteps([]);
@@ -56,7 +56,7 @@ export function TryIt() {
       const res = await fetch("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, hiddenLine: kind === "restock" ? null : line }),
+        body: JSON.stringify({ kind, hiddenLine: kind === "agent" || kind === "skip" ? line : null }),
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => null);
@@ -137,6 +137,14 @@ export function TryIt() {
           </button>
           <button
             type="button"
+            onClick={() => void start("ask_first")}
+            disabled={!hydrated || running !== null}
+            className="self-start text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
+          >
+            Try a restock with a $52 item
+          </button>
+          <button
+            type="button"
             onClick={() => void start("skip")}
             disabled={!hydrated || running !== null || empty || tooLong}
             className="self-start text-left text-zinc-700 underline decoration-zinc-300 underline-offset-4 hover:decoration-zinc-700 disabled:opacity-50 dark:text-zinc-300"
@@ -161,7 +169,7 @@ export function TryIt() {
             <p className="text-lg font-semibold">{error}</p>
           </div>
         ) : card ? (
-          <Card card={card} runId={runId} />
+          <Card card={card} runId={runId} onDecided={setCard} />
         ) : running ? (
           <div className="rounded-2xl border border-dashed border-zinc-300 p-5 text-zinc-500 dark:border-zinc-700">
             {running === "skip" ? "Sending the cart to checkout…" : "The AI is shopping. Its steps appear below as they happen."}
@@ -247,7 +255,63 @@ const TONES: Record<ResultCard["tone"], string> = {
   neutral: "border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100",
 };
 
-function Card({ card, runId }: { card: ResultCard; runId: string | null }) {
+function ApprovalCard({ approval, onDecided }: { approval: NonNullable<ResultCard["approval"]>; onDecided: (c: ResultCard) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function decide(decision: "approve" | "decline") {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: approval.attemptId, decision }),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.card) onDecided(body.card);
+      else setError(body?.error ?? "That did not go through. Nothing was charged.");
+    } catch {
+      setError("That did not go through. Nothing was charged.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      role="dialog"
+      aria-label="Approval request"
+      className="mx-auto w-full max-w-xs rounded-[2rem] border-4 border-zinc-900 bg-white p-4 text-zinc-900 shadow-lg dark:border-zinc-200 dark:bg-zinc-950 dark:text-zinc-100"
+    >
+      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Allowance · now</p>
+      <p className="mt-2 font-semibold">Approve this purchase?</p>
+      <p className="mt-1 text-sm">
+        Your AI wants to buy {approval.items}. Your rule says to ask you first for anything over your limit.
+      </p>
+      {error && <p className="mt-2 text-sm text-red-700 dark:text-red-400">{error}</p>}
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void decide("decline")}
+          className="rounded-xl border border-zinc-300 py-2 font-medium disabled:opacity-50 dark:border-zinc-700"
+        >
+          Decline
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void decide("approve")}
+          className="rounded-xl bg-zinc-900 py-2 font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-zinc-900"
+        >
+          Approve
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Card({ card, runId, onDecided }: { card: ResultCard; runId: string | null; onDecided?: (c: ResultCard) => void }) {
   return (
     <div data-testid="result-card" className={`flex flex-col gap-4 rounded-2xl border p-5 shadow-sm ${TONES[card.tone]}`}>
       <p className="text-xl font-semibold leading-snug sm:text-2xl">{card.headline}</p>
@@ -259,6 +323,7 @@ function Card({ card, runId }: { card: ResultCard; runId: string | null }) {
         <dt className="font-medium opacity-70">PayPal</dt>
         <dd>{card.paypal}</dd>
       </dl>
+      {card.approval && onDecided && <ApprovalCard approval={card.approval} onDecided={onDecided} />}
       <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
         {card.receiptId && (
           <Link href={`/receipts/${card.receiptId}`} className="font-medium underline underline-offset-4">
